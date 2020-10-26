@@ -43,13 +43,13 @@ The first one takes as an input the surfaces map previously generated and will r
 
 .. code-block:: console
 
-  python3 <path/to/repository>/Examples/Scripts/MaterialMaping/writeMapConfig.py geometry-map.json config-map.json
+  python3 <path/to/repository>/Examples/Scripts/MaterialMapping/writeMapConfig.py geometry-map.json config-map.json
 
 Then edit the config-map.json file
 
 .. code-block:: console
 
-  python3 <path/to/repository>/Examples/Scripts/MaterialMaping/configureMap.py geometry-map.json config-map.json
+  python3 <path/to/repository>/Examples/Scripts/MaterialMapping/configureMap.py geometry-map.json config-map.json
 
 Geantino scan
 -------------
@@ -92,7 +92,7 @@ Now that the map has been written, you will want to validate it. First, you can 
 
   <build>/bin/ActsExampleMaterialValidationDD4hep -n 1000 --mat-input-type file --mat-input-file material-maps.json --output-root true --mat-output-file val-mat-map --dd4hep-input <path/to/repository>/Examples/Detectors/DD4hepDetector/compact/OpenDataDetector/OpenDataDetector.xml
 
-To do the validation, five root macros are available in ``Examples/Scripts/MaterialMaping``:
+To do the validation, five root macros are available in ``Examples/Scripts/MaterialMapping``:
 
 - ``Mat_map.C``: general comparison at the track level and 2D map of the detector.
 - ``Mat_map_surface_plot.C``: for each mapped surface show the position of the material.
@@ -104,7 +104,7 @@ To do the validation, five root macros are available in ``Examples/Scripts/Mater
 
   mkdir Validation
 
-  root -l -b <path/to/repository>/Examples/Scripts/MaterialMaping/Mat_map.C'("propagation-material.root","material-maps_tracks.root","Validation")'
+  root -l -b <path/to/repository>/Examples/Scripts/MaterialMapping/Mat_map.C'("propagation-material.root","material-maps_tracks.root","Validation")'
   .q
 
   mkdir Surfaces
@@ -116,11 +116,11 @@ To do the validation, five root macros are available in ``Examples/Scripts/Mater
   mkdir 1D_plot
   cd ..
 
-  root -l -b <path/to/repository>/Examples/Scripts/MaterialMaping/Mat_map_surface_plot_ratio.C'("propagation-material.root","material-maps_tracks.root","geometry-map.json",100000,"Surfaces/ratio_plot","Surfaces/prop_plot","Surfaces/map_plot")'
+  root -l -b <path/to/repository>/Examples/Scripts/MaterialMapping/Mat_map_surface_plot_ratio.C'("propagation-material.root","material-maps_tracks.root","geometry-map.json",100000,"Surfaces/ratio_plot","Surfaces/prop_plot","Surfaces/map_plot")'
   .q
-  root -l -b <path/to/repository>/Examples/Scripts/MaterialMaping/Mat_map_surface_plot_dist.C'("material-maps_tracks.root","geometry-map.json",-1,"Surfaces/dist_plot")'
+  root -l -b <path/to/repository>/Examples/Scripts/MaterialMapping/Mat_map_surface_plot_dist.C'("material-maps_tracks.root","geometry-map.json",-1,"Surfaces/dist_plot")'
   .q
-  root -l -b <path/to/repository>/Examples/Scripts/MaterialMaping/Mat_map_surface_plot_1D.C'("material-maps_tracks.root","geometry-map.json",100000,"Surfaces/1D_plot")'
+  root -l -b <path/to/repository>/Examples/Scripts/MaterialMapping/Mat_map_surface_plot_1D.C'("material-maps_tracks.root","geometry-map.json",100000,"Surfaces/1D_plot")'
   .q
 
 Using the validation plots you can then adapt the binning and the mapped surface to improve the mapping.
