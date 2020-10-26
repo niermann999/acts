@@ -50,6 +50,9 @@ Then edit the config-map.json file
 .. code-block:: console
 
   python3 <path/to/repository>/Examples/Scripts/MaterialMapping/configureMap.py geometry-map.json config-map.json
+  
+.. warning::
+  When working on lxplus, be sure that you use a release of LCG that supports python 3.
 
 Geantino scan
 -------------
