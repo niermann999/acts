@@ -20,10 +20,10 @@ First we will need to extract the list of all the surfaces and volumes in our de
 This algorithm is useful to obtain a visualisation of your detector using the different types of output available (``output-obj`` gives ``.obj`` with a 3D representation of the different subdetectors, for example). Here, we use ``output-json`` to obtain a map of all the surfaces and volumes in the detector with a ``ProtoSurfaceMaterial`` (or a ``ProtoVolumeMaterial``), ``mat-output-allmaterial`` to ensure that a ``ProtoSurfaceMaterial`` (or a ``ProtoVolumeMaterial``) is associated to all the surfaces (or volumes), enforcing all of them to be written.
 Four types of surfaces exist:
 
-- \\'boundaries\\', which represent the boundaries of the different volumes
-- \\'approaches\\', which correspond to the entrance and exits of the detector layer
-- \\'representing\\', which correspond to the surface representation of a layer (often positioned at the middle of the 2 approaches)
-- \\'sensitives\\', which correspond to the active part of the detector (sensors)
+- 'boundaries', which represent the boundaries of the different volumes
+- 'approaches', which correspond to the entrance and exits of the detector layer
+- 'representing', which correspond to the surface representation of a layer (often positioned at the middle of the 2 approaches)
+- 'sensitives', which correspond to the active part of the detector (sensors)
 
 By default, all the surfaces will be written but one can turn a specific type off (for example the sensitive) by using the appropriate option : ``mat-output-XXX false``
 
