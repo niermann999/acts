@@ -18,7 +18,7 @@ import sys
 
 if sys.version_info[0] < 3:
     print('Using Python 2')
-    print('To obtain the proper ordering in the Json files Python 3 is recomanded')
+    print('To obtain the proper ordering in the Json files Python 3 is recommended')
 
 if len(sys.argv) < 2 :
     inFileName = 'surfaces-map.json'
