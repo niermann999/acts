@@ -10,6 +10,7 @@
 
 #include <iomanip>
 #include <ostream>
+#include <sstream>
 #include <string>
 
 #include "../../../thirdparty/nlohmann_json/single_include/nlohmann/json.hpp"
@@ -29,13 +30,31 @@ struct sinfo {
 };
 
 std::ostream& Acts::operator<<(std::ostream& os, Acts::GeometryIdentifier id) {
-  os << "[ " << std::setw(3) << id.volume();
-  os << " | " << std::setw(3) << id.boundary();
-  os << " | " << std::setw(3) << id.layer();
-  os << " | " << std::setw(3) << id.approach();
-  os << " | " << std::setw(4) << id.sensitive() << " ]";
+  // zero represents an invalid/undefined identifier
+  if (not id.value()) {
+    return (os << "undefined");
+  }
+
+  static const char* const names[] = {
+      "vol=", "bnd=", "lay=", "apr=", "sen=",
+  };
+  const GeometryIdentifier::Value levels[] = {
+      id.volume(), id.boundary(), id.layer(), id.approach(), id.sensitive(),
+  };
+
+  bool writeSeparator = false;
+  for (auto i = 0u; i < 5u; ++i) {
+    if (levels[i]) {
+      if (writeSeparator) {
+        os << '|';
+      }
+      os << names[i] << levels[i];
+      writeSeparator = true;
+    }
+  }
   return os;
 }
+
 
 /// Parse the surface map json file to associate the surface name to each id
 
@@ -90,13 +109,14 @@ void Initialise_info(sinfo& surface_info,
                      const std::map<std::string, std::string>& surface_name,
                      const uint64_t& id, const int& type, const float& pos,
                      const float& range_min, const float& range_max) {
+  std::cout << "in bla" << std::endl;
   Acts::GeometryIdentifier ID(id);
   std::ostringstream layerID;
   layerID << ID;
   std::string surface_id = layerID.str();
 
-  std::string Id_temp = surface_id;
-  std::string delimiter = " | ";
+  /*std::string Id_temp = surface_id;
+  std::string delimiter = "|";
   size_t del_pos = 0;
   std::vector<std::string> Ids;
   while ((del_pos = Id_temp.find(delimiter)) != std::string::npos) {
@@ -116,8 +136,14 @@ void Initialise_info(sinfo& surface_info,
 
   surface_info.idname =
       "v" + Ids[0] + "_b" + Ids[1] + "_l" + Ids[2] + "_a" + Ids[3];
-  surface_info.type = type;
+  surface_info.type = type;*/
 
+  std::stringstream s;
+  s << "v" << ID.volume() << "_b" << ID.boundary() << "_l" << ID.layer();
+  s << "_a" << ID.approach();
+  surface_info.idname = s.str();
+  //std::cout << "surface info id name " << surface_info.idname << std::endl;
+  //std::cout << "surface id" << surface_id << std::endl;
   if (surface_name.find(surface_id) != surface_name.end()) {
     surface_info.name = surface_name.at(surface_id);
   } else
