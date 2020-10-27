@@ -90,9 +90,9 @@ void Draw_ratio(TCanvas* c, TProfile* h1, TProfile* h2, TLegend* leg, std::strin
 
 }
 
-/// Compare two set of material tracks (for exemple one obtain with propagator and material map and one with geantino scan).
-/// Draw the ammont of material (in X0) encounter by tracks as function of eta and phi.
-/// Plot the ratio between the two set to help identify inconsistency.
+/// Compare two set of material tracks (for exemple one obtained with propagator and material map and one with geantino scan).
+/// Draw the amount of material (in X0) encountered by the tracks as function of eta and phi.
+/// Plot the ratio between the two sets to help identify inconsistencies.
 
 void Mat_map(std::string Val = "", std::string geantino = "", std::string name = ""){
 
@@ -118,7 +118,7 @@ void Mat_map(std::string Val = "", std::string geantino = "", std::string name =
   TChain *Val_file = new TChain("material-tracks");
   TChain *geantino_file = new TChain("material-tracks");
 
-  // Define line corresponding to the different eta value
+  // Define lines corresponding to the different eta values
   TLine *eta_0 = new TLine(0,-1200,0,1200);
   eta_0->SetLineColor(kRed);
 
@@ -322,9 +322,11 @@ void Mat_map(std::string Val = "", std::string geantino = "", std::string name =
 
     Float_t score = 0;
     for(int i=0; i<Val_X0->GetXaxis()->GetNbins(); i++){
-      score += (Val_X0->GetBinContent(i+1)-geantino_X0->GetBinContent(i+1))*
-      (Val_X0->GetBinContent(i+1)-geantino_X0->GetBinContent(i+1))/
-      geantino_X0->GetBinError(i+1)*geantino_X0->GetBinError(i+1);
+      if (geantino_X0->GetBinError(i+1)*geantino_X0->GetBinError(i+1) != 0){
+        score += (Val_X0->GetBinContent(i+1)-geantino_X0->GetBinContent(i+1))*
+        (Val_X0->GetBinContent(i+1)-geantino_X0->GetBinContent(i+1))/
+        geantino_X0->GetBinError(i+1)*geantino_X0->GetBinError(i+1);
+      }
     }
     std::cout << "Score : " << score << std::endl;
 
