@@ -1,6 +1,6 @@
 // This file is part of the Acts project.
 //
-// Copyright (C) 2017-2020 CERN for the benefit of the Acts project
+// Copyright (C) 2020 CERN for the benefit of the Acts project
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -9,15 +9,17 @@
 #include "ActsExamples/DD4hepDetector/DD4hepDetectorOptions.hpp"
 #include "ActsExamples/DD4hepDetector/DD4hepGeometryService.hpp"
 #include "ActsExamples/Options/CommonOptions.hpp"
+#include "ActsExamples/Utilities/Paths.hpp"
 
 #include <boost/program_options.hpp>
+
+#include <DD4hep/Detector.h>
 
 using namespace ActsExamples;
 
 int main(int argc, char* argv[]) {
   // Setup and parse options
   auto desc = Options::makeDefaultOptions();
-  Options::addSequencerOptions(desc);
   Options::addOutputOptions(desc);
   Options::addDD4hepOptions(desc);
   auto vm = Options::parse(desc, argc, argv);
@@ -30,19 +32,22 @@ int main(int argc, char* argv[]) {
   auto geometrySvc = std::make_shared<DD4hep::DD4hepGeometryService>(dd4hepCfg);
   auto dd4hepDet = *geometrySvc->lcdd();
 
+  // Output directory
+  std::string outputDir = vm["output-dir"].template as<std::string>();
   // Call dd4hep GDML plugin to convert the geomtery and save it to disk
-  // see
+  // see dd4hep/UtilityApps/src/run_plugin.h
   try {
-    dd4hepDet.apply("DD4hepGeometry2GDML", 0, "outfile");
+    dd4hepDet.apply("DD4hepGeometry2GDML", 0,
+                    joinPaths(outputDir, "DD4hep_detector.gdml"));
     return EXIT_SUCCESS;
   }
   catch(const std::exception& e)  {
-      dd4hep::except("RunPlugin","++ Exception while executing plugin %s:\n\t\t%s",
-                     name ? name : "<unknown>", e.what());
+    dd4hep::except("DD4hep: RunPlugin","++ Exception while executing plugin "
+                   "%s:\n\t\t%s", name ? name : "<unknown>", e.what());
   }
   catch(...)  {
-      dd4hep::except("RunPlugin","++ UNKNOWN Exception while executing plugin %s.",name ? name : "<unknown>");
+    dd4hep::except("DD4hep: RunPlugin","++ UNKNOWN Exception while executing "
+                   "plugin %s.",name ? name : "<unknown>");
   }
-  ::exit(EINVAL);
-  return EINVAL;
+  return EXIT_FAILURE;;
 }
