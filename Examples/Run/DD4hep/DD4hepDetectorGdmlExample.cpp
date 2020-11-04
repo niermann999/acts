@@ -6,9 +6,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#include "ActsExamples/DD4hepDetector/DD4hepDetectorOptions.hpp"
-#include "ActsExamples/DD4hepDetector/DD4hepGeometryService.hpp"
 #include "ActsExamples/Options/CommonOptions.hpp"
+#include "ActsExamples/Utilities/Options.hpp"
 #include "ActsExamples/Utilities/Paths.hpp"
 #include "Acts/Utilities/Logger.hpp"
 
@@ -25,7 +24,7 @@ int main(int argc, char* argv[]) {
   auto desc = Options::makeDefaultOptions();
   desc.add_options()
       ("dd4hep-input",
-      po::value<std::vector<std::string>>()->multitoken()->default_value(
+      po::value<std::vector<std::string> >()->multitoken()->default_value(
           {"file:Detectors/DD4hepDetector/compact/OpenDataDetector/"
            "OpenDataDetector.xml"}),
       "The locations of the input DD4hep files, use 'file:foo.xml'. In case "
@@ -42,8 +41,7 @@ int main(int argc, char* argv[]) {
   dd4hep::Detector& dd4hepDet = dd4hep::Detector::getInstance();
 
   // DD4hep detector xml inputfiles
-  std::vector<std::string> geoFiles = vm["dd4hep-input"].as<std::vector<std::string>>();
-  const char* inputFiles[] = {geoFiles[0].c_str()};
+  std::vector<std::string> dd4hepFiles = vm["dd4hep-input"].as<std::vector<std::string> >();
 
   // Output directory
   std::string outputDir = vm["output-dir"].template as<std::string>();
@@ -56,9 +54,13 @@ int main(int argc, char* argv[]) {
   ACTS_LOCAL_LOGGER(Acts::getDefaultLogger("DD4hep2Gdml", logLevel));
 
   // Call dd4hep GDML plugin to convert the geomtery and save it to disk
-  // see dd4hep/UtilityApps/src/run_plugin.h
+  // see dd4hep geoConverter and  dd4hep/UtilityApps/src/run_plugin.h
   try {
-    dd4hepDet.apply("DD4hep_CompactLoader",1,(char**)inputFiles);
+    // Load dd4hep geometry
+    for(size_t i=0; i<dd4hepFiles.size(); i++)  {
+      const char* inputFiles[] = {dd4hepFiles[i].c_str(), 0};
+      dd4hepDet.apply("DD4hep_CompactLoader",1,(char**)inputFiles);
+    }
     dd4hepDet.apply("DD4hepGeometry2GDML", 1, (char**)&outputFiles[1]);
     ACTS_INFO("Completed conversion");
     return EXIT_SUCCESS;
