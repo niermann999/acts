@@ -17,13 +17,15 @@ namespace ActsExamples {
 class GdmlDetectorConstruction final : public G4VUserDetectorConstruction {
  public:
   /// @param path is the path to the Gdml file
-  GdmlDetectorConstruction(std::string path);
+  GdmlDetectorConstruction(std::string path, G4bool perfChck = false);
 
   /// Read the file and parse it to construct the Geant4 description.
   G4VPhysicalVolume* Construct() final override;
 
  private:
   std::string m_path;
+  // Perform construction-time volume overlap check
+  G4bool m_perfChck;
 };
 
 }  // namespace ActsExamples

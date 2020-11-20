@@ -10,10 +10,22 @@ target_link_libraries(
     ActsExamplesGeant4
     ActsExamplesIoRoot
     Boost::program_options)
+    
+add_executable(
+  ActsExampleOverlapCheckGdml
+  GdmlOverlapCheck.cpp)
+target_link_libraries(
+  ActsExampleOverlapCheckGdml
+  PRIVATE
+    ActsExamplesCommon
+    ActsExamplesDetectorDD4hep
+    ActsExamplesGeant4
+    Boost::program_options)
 
 install(
   TARGETS 
     ActsExampleGeantinoRecordingGdml 
+    ActsExampleOverlapCheckGdml
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 add_subdirectory_if(DD4hep ACTS_BUILD_EXAMPLES_DD4HEP)

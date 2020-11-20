@@ -12,11 +12,15 @@
 
 using namespace ActsExamples;
 
-GdmlDetectorConstruction::GdmlDetectorConstruction(std::string path)
-    : G4VUserDetectorConstruction(), m_path(std::move(path)) {}
+GdmlDetectorConstruction::GdmlDetectorConstruction(std::string path,
+ G4bool perfChck)
+    : G4VUserDetectorConstruction(), m_path(std::move(path)), 
+    m_perfChck(perfChck) {}
 
 G4VPhysicalVolume* GdmlDetectorConstruction::Construct() {
   G4GDMLParser parser;
+
+  parser.SetOverlapCheck(m_perfChck);
   // TODO how to handle errors
   parser.Read(m_path);
   return parser.GetWorldVolume();
