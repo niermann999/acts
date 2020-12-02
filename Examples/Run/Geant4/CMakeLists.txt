@@ -19,7 +19,10 @@ target_link_libraries(
   PRIVATE
     ActsExamplesCommon
     ActsExamplesDetectorDD4hep
+    ActsExamplesFramework
     ActsExamplesGeant4
+    ActsExamplesGeant4DD4hep
+    ActsExamplesIoRoot
     Boost::program_options)
 
 install(
