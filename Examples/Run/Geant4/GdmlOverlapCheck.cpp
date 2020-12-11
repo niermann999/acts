@@ -48,12 +48,6 @@ int main(int argc, char* argv[]) {
       std::make_unique<DD4hepDetectorConstruction>(*geometrySvc->lcdd());
   }
   // Setup the GDML detector which automatically runs the overlap check
-  //auto g4detector = std::make_unique<GdmlDetectorConstruction>(gdmlFile, true);
-  //auto dd4hepCfg = Options::readDD4hepConfig<po::variables_map>(vm);
-  //auto geometrySvc = std::make_shared<DD4hep::DD4hepGeometryService>(dd4hepCfg);
-
-  //std::unique_ptr<G4VUserDetectorConstruction> g4detector =
-  //    std::make_unique<DD4hepDetectorConstruction>(*geometrySvc->lcdd());
   G4VPhysicalVolume* world = g4detector->Construct();
   
   //G4GDMLParser parser;
