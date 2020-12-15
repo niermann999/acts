@@ -18,7 +18,17 @@ target_link_libraries(
     ActsCore
     ActsExamplesFramework ActsExamplesCommon
     ActsExamplesMagneticField ActsExamplesIoRoot Boost::program_options)
+    
+add_executable(
+  ActsExampleODDMagneticField
+  ODDBFieldWriter.cpp)
+target_link_libraries(
+  ActsExampleODDMagneticField
+  PRIVATE
+    ActsCore
+    ActsExamplesFramework ActsExamplesCommon
+    ActsExamplesMagneticField ActsExamplesIoRoot Boost::program_options)
 
 install(
-  TARGETS ActsExampleMagneticField ActsExampleMagneticFieldAcess
+  TARGETS ActsExampleMagneticField ActsExampleMagneticFieldAcess ActsExampleODDMagneticField
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
