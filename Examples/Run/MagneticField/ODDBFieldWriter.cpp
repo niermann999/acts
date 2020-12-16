@@ -76,15 +76,15 @@ int main(int argc, char* argv[]) {
   }
 
   //auto bFieldVar = ActsExamples::Options::readBField(vm);
-  const double L = 2.85_m;
-  const double R = (1.200 + 1.140) * 0.5_m;
+  const double L = 2.850_m;
+  const double R = (1.200_m + 1.140_m) * 0.5;
   const size_t nCoils = 1200;
   const double bMagCenter = 2.5_T;
-  const size_t nBinsR = 150;
-  const size_t nBinsZ = 200;
+  const size_t nBinsR = 500;
+  const size_t nBinsZ = 500;
 
-  double rMin = -0.1;
-  double rMax = R * 2.;
+  double rMin = -R * 4;
+  double rMax = R * 4.;
   double zMin = 2 * (-L / 2.);
   double zMax = 2 * (L / 2.);
   
@@ -96,23 +96,7 @@ int main(int argc, char* argv[]) {
 
   BField_t::Config cfg(std::move(mapper));
   auto bFieldMap = BField_t(std::move(cfg));
-  /*using Cache = typename BField_t::Cache;
-  Acts::MagneticFieldContext mctx{};*/
 
   ActsExamples::BField::writeField<BField_t>(vm, std::make_shared<const BField_t>(bFieldMap));
-  
-  /*return std::visit(
-      [&](auto& bField) -> int {
-        using field_type =
-            typename std::decay_t<decltype(bField)>::element_type;
-        if constexpr (!std::is_same_v<field_type, InterpolatedBFieldMap2D> &&
-                      !std::is_same_v<field_type, InterpolatedBFieldMap3D>) {
-          std::cout << "Bfield map could not be read. Exiting." << std::endl;
-          return EXIT_FAILURE;
-        } else {
-          ActsExamples::BField::writeField<field_type>(vm, bField);
-          return EXIT_SUCCESS;
-        }
-      },
-      bFieldVar);*/
+
 }

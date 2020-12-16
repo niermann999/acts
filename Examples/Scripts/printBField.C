@@ -99,18 +99,22 @@ printBField(std::string inFile,
       "BField_rz", "Magnetic Field", nBins, zmin, zmax, nBins * 0.5, 0., rmax);
   bField_rz->GetXaxis()->SetTitle("z [m]");
   bField_rz->GetYaxis()->SetTitle("r [m]");
+  bField_rz->SetOption("cont4z");
   TProfile2D* bField_xy = new TProfile2D(
       "BField_xy", "Magnetic Field", nBins, rmin, rmax, nBins, rmin, rmax);
   bField_xy->GetXaxis()->SetTitle("x [m]");
   bField_xy->GetYaxis()->SetTitle("y [m]");
+  bField_xy->SetOption("cont4z");
   TProfile2D* bField_yz = new TProfile2D(
       "BField_yz", "Magnetic Field", nBins, zmin, zmax, nBins, rmin, rmax);
   bField_yz->GetXaxis()->SetTitle("z [m]");
   bField_yz->GetYaxis()->SetTitle("y [m]");
+  bField_yz->SetOption("cont4z");
   TProfile2D* bField_xz = new TProfile2D(
       "BField_xz", "Magnetic Field", nBins, zmin, zmax, nBins, rmin, rmax);
   bField_xz->GetXaxis()->SetTitle("z [m]");
   bField_xz->GetYaxis()->SetTitle("x [m]");
+  bField_xz->SetOption("cont4z");
 
   for (int i = 0; i < entries; i++) {
     tree->GetEvent(i);
