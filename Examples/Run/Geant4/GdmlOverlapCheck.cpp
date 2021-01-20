@@ -18,7 +18,6 @@
 #include "G4UImanager.hh"
 
 using namespace ActsExamples;
-using namespace ActsExamples;
 
 int main(int argc, char* argv[]) {
   // Setup and parse options
@@ -27,7 +26,7 @@ int main(int argc, char* argv[]) {
   desc.add_options()(
       "gdml-file",
       boost::program_options::value<std::string>()->default_value(""),
-      "GDML detector file.");
+      "input GDML detector file.");
 
   auto vm = Options::parse(desc, argc, argv);
 
@@ -40,21 +39,26 @@ int main(int argc, char* argv[]) {
   std::unique_ptr<G4VUserDetectorConstruction> g4detector;
   if (gdmlFile.compare("") != 0) {
     g4detector = std::make_unique<GdmlDetectorConstruction>(gdmlFile, true);
+    // Set up the GDML detector, which automatically runs the overlaps check in
+    // the process, due to the boolean flag above
+    g4detector->Construct();
+
+    G4UImanager* UImanager = G4UImanager::GetUIpointer();
+    G4String command = "/geometry/test/run ";
+    UImanager->ApplyCommand(command);
   }
+  // Otherwise the gdml file for the detector has to be written first
   else {
     auto dd4hepCfg = Options::readDD4hepConfig<po::variables_map>(vm);
     auto geometrySvc = std::make_shared<DD4hep::DD4hepGeometryService>(dd4hepCfg);
     g4detector =
       std::make_unique<DD4hepDetectorConstruction>(*geometrySvc->lcdd());
+
+    G4VPhysicalVolume* world = g4detector->Construct();
+
+    G4GDMLParser parser;
+    parser.Write("dd4hep_detector_corr.gdml", world);
   }
-  // Setup the GDML detector which automatically runs the overlap check
-  G4VPhysicalVolume* world = g4detector->Construct();
-  
-  //G4GDMLParser parser;
-  //parser.Write("dd4hep_detector_alt.gdml", world);
-  
-  G4UImanager* UImanager = G4UImanager::GetUIpointer();
-  G4String command = "/geometry/test/run ";
-  UImanager->ApplyCommand(command);
+
   return EXIT_SUCCESS;
 }
