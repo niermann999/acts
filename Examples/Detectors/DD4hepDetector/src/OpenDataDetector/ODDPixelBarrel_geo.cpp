@@ -33,10 +33,13 @@ static void completeStaveStructure(Detector& oddd, xml_comp_t& x_stave,
                         staveHlength + x_trd.dz(), x_trd.thickness());
 
     // Create the subtraction
-    Tube tubeCutoutSeg1(x_tubs.rmin(), x_tubs.rmax(), staveHlength + x_tubs.dz(), -0.1, 2.1*M_PI);
-    Tube tubeCutoutSeg2(x_tubs.rmin(), x_tubs.rmax(), staveHlength + x_tubs.dz(), 0, 2*M_PI);
+    Tube tubeCutoutSeg1(x_tubs.rmin(), x_tubs.rmax(),
+                        staveHlength + x_tubs.dz(), -0.1, 2.1 * M_PI);
+    Tube tubeCutoutSeg2(x_tubs.rmin(), x_tubs.rmax(),
+                        staveHlength + x_tubs.dz(), 0, 2 * M_PI);
     UnionSolid foamCutout(tubeCutoutSeg1, tubeCutoutSeg2);
-    //Tube foamCutout(x_tubs.rmin(), x_tubs.rmax(), staveHlength + x_tubs.dz());
+    // Tube foamCutout(x_tubs.rmin(), x_tubs.rmax(), staveHlength +
+    // x_tubs.dz());
 
     // Create the subtraction
     Volume foamVolume("CarbonFoam",
