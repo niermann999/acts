@@ -12,6 +12,7 @@
 #include "ActsExamples/Utilities/OptionsFwd.hpp"
 
 #include <vector>
+#include <nlohmann/json.hpp>
 
 namespace ActsExamples {
 namespace Options {
@@ -19,9 +20,14 @@ namespace Options {
 /// Add TGeo detector options prefixed with geo-tgeo.
 void addTGeoGeometryOptions(Description& desc);
 
+/// Read the BeamPipe configuration from the user configuration.
+std::vector<double> readBeampipeBuilderParam(const std::string& path);
+
+void from_json(const nlohmann::json& j,
+                             Acts::TGeoLayerBuilder::LayerConfig& psc);
+
 /// Read the TGeo layer builder configurations from the user configuration.
-std::vector<Acts::TGeoLayerBuilder::Config> readTGeoLayerBuilderConfigs(
-    const Variables& vars);
+std::vector<Acts::TGeoLayerBuilder::Config> readTGeoLayerBuilderConfigs(const std::string& path);
 
 }  // namespace Options
 }  // namespace ActsExamples
