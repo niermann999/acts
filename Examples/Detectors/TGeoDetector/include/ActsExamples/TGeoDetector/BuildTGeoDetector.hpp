@@ -22,6 +22,8 @@
 #include "Acts/Material/Material.hpp"
 #include "Acts/Material/MaterialSlab.hpp"
 #include "Acts/Plugins/TGeo/TGeoDetectorElement.hpp"
+#include "Acts/Plugins/TGeo/TGeoModuleSplitter.hpp"
+#include "ActsExamples/TGeoDetector/TGeoModuleSplitterBarrel.hpp"
 #include "Acts/Utilities/BinningType.hpp"
 #include "ActsExamples/TGeoDetector/BuildTGeoDetector.hpp"
 #include "ActsExamples/TGeoDetector/TGeoDetectorOptions.hpp"
@@ -35,6 +37,12 @@
 
 namespace ActsExamples {
 namespace TGeo {
+
+enum moduleSplitters : unsigned int {
+    annulusSplitter,
+    diskSplitter,
+    rectangleSplitter
+};
 
 /// @brief global method to build the generic tracking geometry
 // from a TGeo object.
@@ -173,10 +181,27 @@ std::shared_ptr<const Acts::TrackingGeometry> buildTGeoDetector(
     lbc.protoLayerHelper =
         (protoLayerHelperLB != nullptr) ? protoLayerHelperLB : protoLayerHelper;
 
-    auto layerBuilder = std::make_shared<const Acts::TGeoLayerBuilder>(
-        lbc, Acts::getDefaultLogger(lbc.configurationName + "LayerBuilder",
+    auto layerBuilder = std::make_shared<Acts::TGeoLayerBuilder>(lbc, Acts::getDefaultLogger(lbc.configurationName + "LayerBuilder",
                                     layerLogLevel));
-    // remember the layer builder
+
+    for (const auto& layerConfigs : lbc.layerConfigurations) {
+        for (const auto& layerConfig : layerConfigs) {
+            for (const auto& splitterConfig : layerConfig.splitterConfigs) {
+                layerBuilder = std::make_shared<Acts::TGeoModuleSplitter>(layerBuilder);
+
+                if (splitterConfig.moduleType == annulusSplitter) {
+                    layerBuilder = std::make_shared<Acts::AddTGeoModuleSplitterBarrel>(layerBuilder, splitterConfig.splitParamMap);
+                }
+                else if (splitterConfig.moduleType == diskSplitter) {
+                    layerBuilder = std::make_shared<Acts::AddTGeoModuleSplitterBarrel>(layerBuilder, splitterConfig.splitParamMap);
+                }
+                else if (splitterConfig.moduleType == rectangleSplitter) {
+                    layerBuilder = std::make_shared<Acts::AddTGeoModuleSplitterBarrel>(layerBuilder, splitterConfig.splitParamMap);
+                }
+            }
+        }
+    }
+
     tgLayerBuilders.push_back(layerBuilder);
 
     // build the pixel volume

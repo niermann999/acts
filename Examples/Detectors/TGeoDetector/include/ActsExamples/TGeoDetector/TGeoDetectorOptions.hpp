@@ -26,6 +26,9 @@ std::vector<double> readBeampipeBuilderParam(const std::string& path);
 void from_json(const nlohmann::json& j,
                              Acts::TGeoLayerBuilder::LayerConfig& psc);
 
+void from_json(const nlohmann::json& j,
+                             Acts::TGeoLayerBuilder::SplitterConfig& msc);
+
 /// Read the TGeo layer builder configurations from the user configuration.
 std::vector<Acts::TGeoLayerBuilder::Config> readTGeoLayerBuilderConfigs(const std::string& path);
 

@@ -190,11 +190,15 @@ void Acts::TGeoLayerBuilder::buildLayers(const GeometryContext& gctx,
                 ? m_cfg.identifierProvider->identify(gctx, *snode.node)
                 : Identifier();
 
-        auto tgElement = std::make_shared<const Acts::TGeoDetectorElement>(
-            identifier, *snode.node, *snode.transform, layerCfg.localAxes,
-            m_cfg.unit);
-        m_elementStore.push_back(tgElement);
-        layerSurfaces.push_back(tgElement->surface().getSharedPtr());
+        auto tgElements = buildElements(std::make_shared<const Acts::TGeoDetectorElement>(
+             identifier, *snode.node, *snode.transform, layerCfg.localAxes,
+             m_cfg.unit));
+
+        for (const auto& element : tgElements) {
+          std::cout << "found and element" << std::endl;
+          m_elementStore.push_back(element);
+          layerSurfaces.push_back(element->surface().getSharedPtr());
+        }
       }
 
       ACTS_DEBUG("- created TGeoDetectorElements : " << layerSurfaces.size());

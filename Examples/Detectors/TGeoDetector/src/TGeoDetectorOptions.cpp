@@ -87,23 +87,30 @@ std::vector<double> ActsExamples::Options::readBeampipeBuilderParam(const std::s
 }
 
 void ActsExamples::Options::from_json(const nlohmann::json& j,
+                             Acts::TGeoLayerBuilder::SplitterConfig& msc) {
+
+  msc.moduleType = j["geo-tgeo-splitter-type"];
+  msc.splitParamMap = j["geo-tgeo-splitter-map"].get<std::map<std::string, std::vector<unsigned int>>>();
+}
+
+void ActsExamples::Options::from_json(const nlohmann::json& j,
                              Acts::TGeoLayerBuilder::LayerConfig& psc) {
 
-    psc.volumeName  = j["geo-tgeo-volume-name"];
-    psc.sensorNames = j["geo-tgeo-module-name"].get<std::vector<std::string>>();
-    psc.localAxes   = j["geo-tgeo-module-axes"];
-    auto r_range = j["geo-tgeo-layer-r-range"].get<std::pair<double, double>>();
-    auto z_range = j["geo-tgeo-layer-z-range"].get<std::pair<double, double>>();
-    psc.parseRanges = {{Acts::binR, r_range}, {Acts::binZ, z_range}};
-    double r_split = j["geo-tgeo-layer-r-split"];
-    double z_split = j["geo-tgeo-layer-z-split"];
-    if (0 < r_split) {
-        psc.splitConfigs.emplace_back(Acts::binR, r_split);
-    }
-    if (0 < z_split) {
-        psc.splitConfigs.emplace_back(Acts::binZ, z_split);
-    }
+  psc.volumeName  = j["geo-tgeo-volume-name"];
+  psc.sensorNames = j["geo-tgeo-module-name"].get<std::vector<std::string>>();
+  psc.localAxes   = j["geo-tgeo-module-axes"];
+  auto r_range = j["geo-tgeo-layer-r-range"].get<std::pair<double, double>>();
+  auto z_range = j["geo-tgeo-layer-z-range"].get<std::pair<double, double>>();
+  psc.parseRanges = {{Acts::binR, r_range}, {Acts::binZ, z_range}};
+  double r_split = j["geo-tgeo-layer-r-split"];
+  double z_split = j["geo-tgeo-layer-z-split"];
+  if (0 < r_split) {
+      psc.splitConfigs.emplace_back(Acts::binR, r_split);
   }
+  if (0 < z_split) {
+      psc.splitConfigs.emplace_back(Acts::binZ, z_split);
+  }
+}
 
 
 std::vector<Acts::TGeoLayerBuilder::Config>
@@ -160,6 +167,12 @@ ActsExamples::Options::readTGeoLayerBuilderConfigs(const std::string& path) {
       }
       Acts::TGeoLayerBuilder::LayerConfig lConfig;
       from_json(layer, lConfig);
+
+      for(const auto& splitter : layer["Splitters"]) {
+        Acts::TGeoLayerBuilder::SplitterConfig sConfig;
+        from_json(splitter, sConfig);
+        lConfig.splitterConfigs.push_back(sConfig);
+      }
       layerBuilderConfig.layerConfigurations[ncp++].push_back(lConfig);
     }
 

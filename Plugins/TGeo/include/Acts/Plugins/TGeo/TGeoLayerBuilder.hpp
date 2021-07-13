@@ -20,6 +20,7 @@
 #include "Acts/Utilities/Logger.hpp"
 
 #include <climits>
+#include <map>
 #include <tuple>
 
 class TGeoMatrix;
@@ -43,7 +44,14 @@ class Surface;
 /// split into layers.
 class TGeoLayerBuilder : public ILayerBuilder {
  public:
-  ///  Helper config structs for volume parsin
+  ///  Helper config for module splitting
+  struct SplitterConfig {
+    unsigned int moduleType;
+
+    std::map<std::string, std::vector<unsigned int>> splitParamMap;
+  };
+
+  ///  Helper config structs for volume parsing
   struct LayerConfig {
    public:
     using RangeConfig = std::pair<BinningValue, std::pair<double, double>>;
@@ -67,6 +75,8 @@ class TGeoLayerBuilder : public ILayerBuilder {
     std::tuple<int, BinningType> binning0 = {-1, equidistant};
     /// Binning setup in l1: nbins (-1 -> automated), axis binning type
     std::tuple<int, BinningType> binning1 = {-1, equidistant};
+    /// Parameters for module splitting
+    std::vector<SplitterConfig> splitterConfigs;
 
     // Default constructor
     LayerConfig()
@@ -147,6 +157,15 @@ class TGeoLayerBuilder : public ILayerBuilder {
   const std::vector<std::shared_ptr<const TGeoDetectorElement>>&
   detectorElements() const;
 
+  /// If applicable, returns a split detector element
+  inline std::vector<std::shared_ptr<const TGeoDetectorElement>> buildElements(std::shared_ptr<const Acts::TGeoDetectorElement> detElement) {
+    return {detElement};
+  }
+
+ protected:
+
+   TGeoLayerBuilder() {}
+   
  private:
   /// Configuration object
   Config m_cfg;
