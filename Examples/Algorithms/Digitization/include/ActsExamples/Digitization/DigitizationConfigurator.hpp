@@ -67,6 +67,7 @@ struct DigitizationConfigurator {
     }
 
     Acts::GeometryIdentifier geoId = surface->geometryId();
+
     const auto dInputConfigVector = inputDigiComponents.find((geoId));
     if (dInputConfigVector == inputDigiComponents.end()) {
       return;
@@ -149,6 +150,7 @@ struct DigitizationConfigurator {
                   boundValues[Acts::TrapezoidBounds::eHalfLengthY];
               unsigned int nBins = std::round(
                   (2 * maxY) / inputSegmentation.binningData()[accessBin].step);
+
               outputSegmentation +=
                   Acts::BinUtility(nBins, -maxY, maxY, Acts::open, Acts::binY);
             }
@@ -171,7 +173,7 @@ struct DigitizationConfigurator {
               Acts::ActsScalar averagePhi =
                   boundValues[Acts::AnnulusBounds::eAveragePhi];
               Acts::ActsScalar minPhi =
-                  averagePhi - boundValues[Acts::AnnulusBounds::eMinPhiRel];
+                  averagePhi + boundValues[Acts::AnnulusBounds::eMinPhiRel];
               Acts::ActsScalar maxPhi =
                   averagePhi + boundValues[Acts::AnnulusBounds::eMaxPhiRel];
               unsigned int nBins =

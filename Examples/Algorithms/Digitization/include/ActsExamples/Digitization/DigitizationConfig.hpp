@@ -11,6 +11,7 @@
 #include "Acts/Definitions/Algebra.hpp"
 #include "Acts/Geometry/GeometryHierarchyMap.hpp"
 #include "Acts/Geometry/TrackingGeometry.hpp"
+#include "Acts/Surfaces/AnnulusBounds.hpp"
 #include "Acts/Utilities/BinUtility.hpp"
 #include "Acts/Utilities/BinningType.hpp"
 #include "Acts/Utilities/Logger.hpp"
@@ -85,7 +86,19 @@ struct DigiConstraint {
 
   bool operator()(const Acts::Surface &s,
                   const Acts::GeometryContext &g) const {
-    const auto r = std::hypot(s.center(g)[0], s.center(g)[1]);
+
+    // Use the surface placement to check the radial constraint
+    auto r = std::hypot(s.center(g)[0], s.center(g)[1]);
+    // The surface center lies outside of the annulus bounds. Use r-boundaries
+    // instead
+    const Acts::SurfaceBounds& sBounds = s.bounds();
+    if (sBounds.type() == Acts::SurfaceBounds::eAnnulus) {
+      const auto boundValues = sBounds.values();
+      const Acts::ActsScalar minR = boundValues[Acts::AnnulusBounds::eMinR];
+      const Acts::ActsScalar maxR = boundValues[Acts::AnnulusBounds::eMaxR];
+      r = minR + 0.5 * (maxR - minR);
+    }
+
     if (rRange && (r < rRange->first || r > rRange->second)) {
       return false;
     }

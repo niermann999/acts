@@ -11,7 +11,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 # determine project version; sets _acts_version and _acts_commit_hash
 include(ActsRetrieveVersion)
 
-project(Acts VERSION ${_acts_version} LANGUAGES CXX)
+project(Acts VERSION ${_acts_version} LANGUAGES CXX C)
 
 # build options
 

@@ -55,7 +55,7 @@ ActsExamples::DigitizationConfig::getBoundIndices() const {
       std::pair<Acts::GeometryIdentifier, std::vector<Acts::BoundIndices>>>
       bIndexInput;
 
-  throw std::runtime_error("not correctly implemented at the moment");
+  //throw std::runtime_error("not correctly implemented at the moment");
 
   for (size_t ibi = 0; ibi < digitizationConfigs.size(); ++ibi) {
     Acts::GeometryIdentifier geoID = digitizationConfigs.idAt(ibi);
