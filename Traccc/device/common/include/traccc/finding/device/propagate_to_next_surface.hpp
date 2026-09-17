@@ -83,13 +83,17 @@ struct propagate_to_next_surface_payload {
 /// @param[in] cfg                Track finding config object
 /// @param[in] det_data_ptr       Pointer to the tracking detector description
 /// @param[in] field_data         View object to the magnetic field
-/// @param[in,out] payload      The function call payload
+/// @param[out] surfaces_view     The view to the surface sequence per track
+/// @param[in,out] payload        The function call payload
 ///
 template <typename propagator_t, typename bfield_t>
 TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
     global_index_t globalIndex, const finding_config& cfg,
     const typename propagator_t::detector_type* const det_data_ptr,
     const bfield_t& field_data,
+    vecmem::data::jagged_vector_view<
+        typename propagator_t::detector_type::surface_type>
+        surfaces_view,
     const propagate_to_next_surface_payload& payload);
 
 }  // namespace traccc::device

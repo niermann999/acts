@@ -28,6 +28,9 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
     const global_index_t globalIndex, const finding_config& cfg,
     const typename propagator_t::detector_type* const det_data_ptr,
     const bfield_t& field_data,
+    vecmem::data::jagged_vector_view<
+        typename propagator_t::detector_type::surface_type>
+        surfaces_view,
     const propagate_to_next_surface_payload& payload) {
   using algebra_t = typename propagator_t::detector_type::algebra_type;
   using scalar_t = detray::dscalar<algebra_t>;
@@ -91,6 +94,15 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
       momentum_aborter_state{};
   // CKF aborter
   typename ckf_aborter::state ckf_aborter_state{};
+  // Collect the surface geometry identifiers for the Kalman smoother
+  assert(std::isfinite(link.seed_idx));
+  assert(surfaces_view.ptr() != nullptr);
+  assert(surfaces_view.size() == 1u || link.seed_idx < surfaces_view.size());
+  typename detray::actor::surface_sequencer<
+      typename propagator_t::detector_type::surface_type>::state
+      sequencer_state{vecmem::device_vector<
+          typename propagator_t::detector_type::surface_type>(
+          *(surfaces_view.ptr() + link.seed_idx))};
 
   /*
    * If we are running the MBF smoother, we need to accumulate the Jacobians
@@ -119,8 +131,9 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
 
   // Propagate to the next surface
   propagator.propagate(
-      propagation, detray::tie(aborter_state, updater_state, interactor_state,
-                               momentum_aborter_state, ckf_aborter_state));
+      propagation,
+      detray::tie(aborter_state, sequencer_state, updater_state,
+                  interactor_state, momentum_aborter_state, ckf_aborter_state));
 
   // If a surface found, add the parameter for the next step
   if (ckf_aborter_state.success) {

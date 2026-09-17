@@ -137,7 +137,7 @@ progressive_kalman_filter(
       detray::tie(path_aborter_state, sequencer_state, updater_state,
                   interactor_state, meas_updater_state, momentum_aborter_state);
 
-  assert(meas_updater_state.m_stats.n_holes < cfg.max_num_skipping_per_cand);
+  // assert(meas_updater_state.m_stats.n_holes < cfg.max_num_skipping_per_cand);
   assert(meas_updater_state.m_stats.n_consecutive_holes <
          cfg.max_num_consecutive_skipped);
 

@@ -23,13 +23,17 @@ __global__ __launch_bounds__(128, 5) void propagate_to_next_surface(
     const __grid_constant__ finding_config cfg,
     const typename propagator_t::detector_type* __restrict__ const det_data_ptr,
     const __grid_constant__ bfield_t field_data,
+    const __grid_constant__ vecmem::data::jagged_vector_view<
+        typename propagator_t::detector_type::surface_type>
+        surfaces_view,
     const __grid_constant__ device::propagate_to_next_surface_payload payload) {
   // TODO: Re-enable this this additional checks for compilation with the ABI
   // enabled.
   // TRACCC_CUDA_SPILL_TO_SHARED_MEMORY;
 
-  device::propagate_to_next_surface<propagator_t>(
-      details::global_index1(), cfg, det_data_ptr, field_data, payload);
+  device::propagate_to_next_surface<propagator_t>(details::global_index1(), cfg,
+                                                  det_data_ptr, field_data,
+                                                  surfaces_view, payload);
 }
 
 }  // namespace kernels
@@ -40,9 +44,11 @@ void propagate_to_next_surface(
     const cudaStream_t& stream, const finding_config& cfg,
     const typename propagator_t::detector_type* det_data_ptr,
     const bfield_t& field_data,
+    const vecmem::data::jagged_vector_view<
+        typename propagator_t::detector_type::surface_type>& surfaces_view,
     const device::propagate_to_next_surface_payload& payload) {
   kernels::propagate_to_next_surface<propagator_t>
-      <<<grid_size, block_size, shared_mem_size, stream>>>(cfg, det_data_ptr,
-                                                           field_data, payload);
+      <<<grid_size, block_size, shared_mem_size, stream>>>(
+          cfg, det_data_ptr, field_data, surfaces_view, payload);
 }
 }  // namespace traccc::cuda

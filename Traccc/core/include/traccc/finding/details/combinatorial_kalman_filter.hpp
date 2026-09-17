@@ -530,7 +530,7 @@ combinatorial_kalman_filter(
       ckf_aborter_state.max_count = config.max_step_counts_for_next_surface;
 
       // Propagate to the next surface
-      TRACCC_DEBUG_HOST("Propagating... ");
+      /*TRACCC_DEBUG_HOST("Propagating... ");
       propagator.propagate(
           propagation,
           detray::tie(aborter_state, updater_state, interactor_state,
@@ -590,7 +590,7 @@ combinatorial_kalman_filter(
           (step == (config.max_track_candidates_per_track - 1u))) {
         TRACCC_ERROR_HOST("Create tip: Max no. candidates");
         tips.push_back({step, link_id});
-      }
+      }*/
     }
 
     in_params = std::move(out_params);

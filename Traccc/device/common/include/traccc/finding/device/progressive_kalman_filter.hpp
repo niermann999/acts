@@ -71,7 +71,8 @@ struct progressive_kalman_filter_payload {
 ///
 /// @param[in] globalIndex        The index of the current thread
 /// @param[in] cfg                Track finding config object
-/// @param[in,out] payload         The function call payload
+/// @param[out] surfaces_view     The view to the surface sequence per track
+/// @param[in,out] payload        The function call payload
 ///
 template <typename propagator_t>
 TRACCC_HOST_DEVICE inline void progressive_kalman_filter(

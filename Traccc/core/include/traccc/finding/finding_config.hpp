@@ -98,9 +98,9 @@ struct finding_config {
   /// The type of smoother to be run in track finding
   smoother_type run_smoother = smoother_type::e_mbf;
 
-  /// Minimum step length that track should make to reach the next surface. It
-  /// should be set higher than the overstep tolerance not to make it stay on
-  /// the same surface
+  /// Minimum step length that track should make to reach the next surface.
+  /// It should be set higher than the overstep tolerance not to make it
+  /// stay on the same surface
   float min_step_length_for_next_surface = 1.2f * traccc::unit<float>::mm;
   /// Maximum step counts that track can make to reach the next surface
   unsigned int max_step_counts_for_next_surface = 100;
