@@ -110,12 +110,9 @@ void combinatorial_kalman_filter_algorithm::progressive_kalman_filter_kernel(
         using surface_t = typename detector_t::surface_type;
 
         // If the Kalman smoother should be run, obtain the real allocation
-        vecmem::data::jagged_vector_view<surface_t> sf_sequences;
-        if (config.run_smoother == smoother_type::e_kalman) {
-          sf_sequences =
-              smoothing_payload.surfaces
-                  .as<vecmem::data::jagged_vector_buffer<surface_t>>();
-        }
+        const vecmem::data::jagged_vector_view<surface_t>& sf_sequences =
+            smoothing_payload.surfaces
+                .as<vecmem::data::jagged_vector_buffer<surface_t>>();
 
         progressive_kalman_filter<traccc::details::pkf_propagator_t<
             detector_device_t, bfield_view_t>>(
@@ -255,7 +252,9 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
     unsigned int n_threads, const finding_config& config,
     const detector_buffer& detector, const move_only_any& device_detector,
     const magnetic_field& field,
-    const device::propagate_to_next_surface_payload& payload) const {
+    const device::propagate_to_next_surface_payload& payload,
+    const device::kalman_fitting_algorithm::fit_payload& smoothing_payload)
+    const {
   // Establish the kernel launch parameters.
   const unsigned int deviceThreads = warp_size() * 4;
   const unsigned int deviceBlocks =
@@ -269,6 +268,12 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
           const detray::detector_view_t<detector_t>&,
           const bfield_view_t& bfield) {
         using detector_device_t = detray::detector_device_t<detector_t>;
+        using surface_t = typename detector_device_t::surface_type;
+
+        // If the Kalman smoother should be run, obtain the real allocation
+        const vecmem::data::jagged_vector_view<surface_t>& sf_sequences =
+            smoothing_payload.surfaces
+                .as<vecmem::data::jagged_vector_buffer<surface_t>>();
 
         const vecmem::data::vector_buffer<detector_device_t>&
             device_detector_buffer =
@@ -279,7 +284,8 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
             traccc::details::ckf_propagator_t<detector_device_t, bfield_view_t>,
             bfield_view_t>(deviceBlocks, deviceThreads, 0u,
                            details::get_stream(stream()), config,
-                           device_detector_buffer.ptr(), bfield, payload);
+                           device_detector_buffer.ptr(), bfield, sf_sequences,
+                           payload);
       });
   TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
 }

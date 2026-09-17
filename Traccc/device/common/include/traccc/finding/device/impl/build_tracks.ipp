@@ -176,6 +176,22 @@ TRACCC_HOST_DEVICE inline void build_tracks(
       accumulated_jacobian = payload.jacobian_ptr[link_idx];
 
       *it = {edm::track_constituent_link::track_state, track_state_index};
+    } else if (!run_mbf) {
+      const unsigned int track_state_index = track_states.push_back(
+          edm::make_track_state<default_algebra>(measurements, L.meas_idx));
+      auto track_state = track_states.at(track_state_index);
+
+      track_state.set_hole(false);
+
+      // TODO: The fact that we store the chi2 three times is nonsense.
+      track_state.filtered_chi2() = L.chi2;
+
+      const bound_track_parameters<>& filtered_params =
+          link_filtered_params.at(link_idx);
+
+      track_state.filtered_params() = filtered_params;
+
+      *it = {edm::track_constituent_link::track_state, track_state_index};
     } else {
       *it = {edm::track_constituent_link::measurement, L.meas_idx};
     }

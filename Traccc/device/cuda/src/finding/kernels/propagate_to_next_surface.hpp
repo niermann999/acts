@@ -22,6 +22,8 @@ void propagate_to_next_surface(
     const cudaStream_t& stream, const finding_config& cfg,
     const typename propagator_t::detector_type* det_data_ptr,
     const bfield_t& field_data,
+    const vecmem::data::jagged_vector_view<
+        typename propagator_t::detector_type::surface_type>& surfaces_view,
     const device::propagate_to_next_surface_payload& payload);
 
 }  // namespace traccc::cuda

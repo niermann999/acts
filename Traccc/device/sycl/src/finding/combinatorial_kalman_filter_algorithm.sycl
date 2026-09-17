@@ -152,12 +152,9 @@ void combinatorial_kalman_filter_algorithm::progressive_kalman_filter_kernel(
         copy()({1u, &det}, device_det)->ignore();
 
         // If the Kalman smoother should be run, obtain the real allocation
-        vecmem::data::jagged_vector_view<surface_t> sf_sequences;
-        if (config.run_smoother == smoother_type::e_kalman) {
-          sf_sequences =
-              smoothing_payload.surfaces
-                  .as<vecmem::data::jagged_vector_buffer<surface_t>>();
-        }
+        const vecmem::data::jagged_vector_view<surface_t>& sf_sequences =
+            smoothing_payload.surfaces
+                .as<vecmem::data::jagged_vector_buffer<surface_t>>();
 
         // Launch the kernel to propagate all active tracks to the next
         // surface.
@@ -338,7 +335,9 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
     unsigned int n_threads, const finding_config& config,
     const detector_buffer& detector, const move_only_any& device_detector,
     const magnetic_field& field,
-    const device::propagate_to_next_surface_payload& payload) const {
+    const device::propagate_to_next_surface_payload& payload,
+    const device::kalman_fitting_algorithm::fit_payload& smoothing_payload)
+    const {
   ::sycl::queue& squeue = details::get_queue(queue());
   squeue.throw_asynchronous();
   detector_buffer_magnetic_field_visitor<detector_type_list,
@@ -357,6 +356,11 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
                 device_detector
                     .as<vecmem::data::vector_buffer<detector_device_t>>();
 
+        // If the Kalman smoother should be run, obtain the real allocation
+        const vecmem::data::jagged_vector_view<surface_t>& sf_sequences =
+            smoothing_payload.surfaces
+                .as<vecmem::data::jagged_vector_buffer<surface_t>>();
+
         // Launch the kernel to propagate all active tracks to the next
         // surface.
         squeue.submit([&](::sycl::handler& h) {
@@ -370,7 +374,7 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
                     traccc::details::ckf_propagator_t<detector_device_t,
                                                       bfield_view_t>,
                     bfield_view_t>(details::global_index(item), config, det,
-                                   bfield, payload);
+                                   bfield, sf_sequences, payload);
               });
         });
       });

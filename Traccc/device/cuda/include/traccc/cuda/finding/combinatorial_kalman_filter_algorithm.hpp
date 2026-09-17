@@ -163,7 +163,9 @@ class combinatorial_kalman_filter_algorithm
       unsigned int n_threads, const finding_config& config,
       const detector_buffer& det, const move_only_any& device_detector,
       const magnetic_field& bfield,
-      const device::propagate_to_next_surface_payload& payload) const override;
+      const device::propagate_to_next_surface_payload& payload,
+      const device::kalman_fitting_algorithm::fit_payload& smoothing_payload)
+      const override;
 
   /// Launch the @c gather_best_tips_per_measurement kernel
   ///

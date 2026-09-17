@@ -172,11 +172,14 @@ struct propagate_to_next_surface {
       TAcc const& acc, const finding_config& cfg,
       const typename propagator_t::detector_type* det_data_ptr,
       const bfield_t& field_data,
+      vecmem::data::jagged_vector_view<
+          typename propagator_t::detector_type::surface_type>
+          sf_sequences,
       const device::propagate_to_next_surface_payload& payload) const {
     device::global_index_t globalThreadIdx =
         ::alpaka::getIdx<::alpaka::Grid, ::alpaka::Threads>(acc)[0];
     device::propagate_to_next_surface<propagator_t, bfield_t>(
-        globalThreadIdx, cfg, det_data_ptr, field_data, payload);
+        globalThreadIdx, cfg, det_data_ptr, field_data, sf_sequences, payload);
   }
 };
 
@@ -314,12 +317,9 @@ void combinatorial_kalman_filter_algorithm::progressive_kalman_filter_kernel(
         copy()({1u, &det}, device_det)->ignore();
 
         // If the Kalman smoother should be run, obtain the real allocation
-        vecmem::data::jagged_vector_view<surface_t> sf_sequences;
-        if (config.run_smoother == smoother_type::e_kalman) {
-          sf_sequences =
-              smoothing_payload.surfaces
-                  .as<vecmem::data::jagged_vector_buffer<surface_t>>();
-        }
+        const vecmem::data::jagged_vector_view<surface_t>& sf_sequences =
+            smoothing_payload.surfaces
+                .as<vecmem::data::jagged_vector_buffer<surface_t>>();
 
         // Launch the kernel to propagate all active tracks to the next
         // surface.
@@ -461,7 +461,9 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
     unsigned int n_threads, const finding_config& config,
     const detector_buffer& detector, const move_only_any& device_detector,
     const magnetic_field& field,
-    const device::propagate_to_next_surface_payload& payload) const {
+    const device::propagate_to_next_surface_payload& payload,
+    const device::kalman_fitting_algorithm::fit_payload& smoothing_payload)
+    const {
   // Establish the kernel launch parameters.
   const unsigned int deviceThreads = warp_size() * 4;
   const unsigned int deviceBlocks =
@@ -484,6 +486,11 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
                 device_detector
                     .as<vecmem::data::vector_buffer<detector_device_t>>();
 
+        // If the Kalman smoother should be run, obtain the real allocation
+        const vecmem::data::jagged_vector_view<surface_t>& sf_sequences =
+            smoothing_payload.surfaces
+                .as<vecmem::data::jagged_vector_buffer<surface_t>>();
+
         // Launch the kernel to propagate all active tracks to the next
         // surface.
         ::alpaka::exec<Acc>(
@@ -493,7 +500,8 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
                 traccc::details::ckf_propagator_t<detector_device_t,
                                                   bfield_view_t>,
                 bfield_view_t>{},
-            config, device_detector_buffer.ptr(), bfield, payload);
+            config, device_detector_buffer.ptr(), bfield, sf_sequences,
+            payload);
       });
 }
 
