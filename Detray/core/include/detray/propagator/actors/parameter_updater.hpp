@@ -11,6 +11,7 @@
 // Project include(s).
 #include "detray/definitions/algebra.hpp"
 #include "detray/definitions/detail/qualifiers.hpp"
+#include "detray/definitions/math.hpp"
 #include "detray/definitions/track_parametrization.hpp"
 #include "detray/geometry/tracking_surface.hpp"
 #include "detray/propagator/base_actor.hpp"
@@ -23,6 +24,11 @@
 #include "detray/utils/curvilinear_frame.hpp"
 #include "detray/utils/logging.hpp"
 #include "detray/utils/type_registry.hpp"
+
+// System include(s).
+#include <cassert>
+#include <type_traits>
+#include <utility>
 
 namespace detray::actor {
 
@@ -177,11 +183,71 @@ struct parameter_updater_state {
     m_full_jacobian = jac_ptr;
   }
 
+  /// Set an external buffer to record the surface descriptors of all
+  /// sensitive and material surfaces that the track reaches
+  ///
+  /// @tparam sf_descriptor_t the surface descriptor type of the detector
+  ///
+  /// @param sf_seq_ptr pointer to the first element of the buffer
+  /// @param capacity number of descriptors the buffer can hold (> 0)
+  template <typename sf_descriptor_t>
+  DETRAY_HOST_DEVICE constexpr void set_surface_sequence(
+      sf_descriptor_t* sf_seq_ptr, const unsigned int capacity) {
+    static_assert(std::is_trivially_copyable_v<sf_descriptor_t>);
+    assert(sf_seq_ptr);
+    assert(capacity > 0u);
+    m_sf_sequence = sf_seq_ptr;
+    m_sf_capacity = capacity;
+    m_n_surfaces = 0u;
+  }
+
+  /// @returns true if the surface descriptors should be recorded
+  DETRAY_HOST_DEVICE
+  constexpr bool has_surface_sequence() const {
+    return m_sf_sequence != nullptr;
+  }
+
+  /// Record a surface descriptor in the external buffer
+  ///
+  /// @note Does not branch on overflow: The last element is overwritten and
+  /// the counter is incremented further. Check @c surface_sequence_overflow
+  /// after the propagation.
+  ///
+  /// @tparam sf_descriptor_t the surface descriptor type of the detector.
+  ///                         Must be the type given to the buffer
+  ///
+  /// @param sf_desc the surface descriptor to record
+  template <typename sf_descriptor_t>
+  DETRAY_HOST_DEVICE constexpr void record_surface(
+      const sf_descriptor_t& sf_desc) {
+    assert(has_surface_sequence());
+    static_cast<sf_descriptor_t*>(
+        m_sf_sequence)[math::min(m_n_surfaces, m_sf_capacity - 1u)] = sf_desc;
+    ++m_n_surfaces;
+  }
+
+  /// @returns the number of surfaces that were recorded (can be larger than
+  /// the buffer capacity)
+  DETRAY_HOST_DEVICE
+  constexpr unsigned int n_recorded_surfaces() const { return m_n_surfaces; }
+
+  /// @returns true if more surfaces were found than the buffer can hold
+  DETRAY_HOST_DEVICE
+  constexpr bool surface_sequence_overflow() const {
+    return m_n_surfaces > m_sf_capacity;
+  }
+
  private:
   /// Bound track parameters and covariance
   bound_track_parameters<algebra_t> m_bound_params{};
   /// Full jacobian for up to the current destination surface
   bound_matrix<algebra_t>* m_full_jacobian{nullptr};
+  /// External buffer for the surface descriptors (detector surface type)
+  void* m_sf_sequence{nullptr};
+  /// Capacity of the surface descriptor buffer
+  unsigned int m_sf_capacity{0u};
+  /// Number of recorded surface descriptors
+  unsigned int m_n_surfaces{0u};
   /// Configuration for the noise estimation
   noise_cfg m_cfg{};
   /// Always update the free track parameters, even if nothing changed
@@ -382,6 +448,14 @@ struct parameter_transporter : base_actor {
           old_cov, propagation_step_jacobian, new_cov);
     } else {
       DETRAY_VERBOSE_HOST_DEVICE("Actor: Departure surface link invalid");
+    }
+
+    // Record the destination surface, if required (the initial surface is
+    // excluded by the early return above)
+    if (updater_state.has_surface_sequence()) {
+      using surface_t = typename propagator_state_t::detector_type::surface_type;
+      updater_state.template record_surface<surface_t>(
+          std::as_const(navigation).current().surface());
     }
 
     DETRAY_VERBOSE_HOST_DEVICE(

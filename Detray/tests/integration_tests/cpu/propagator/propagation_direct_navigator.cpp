@@ -31,6 +31,9 @@
 // GTest include(s)
 #include <gtest/gtest.h>
 
+// System include(s)
+#include <vector>
+
 using namespace detray;
 
 using test_algebra = test::algebra;
@@ -221,6 +224,146 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(-600.f * unit<scalar>::um,
                         vector3{1.f * unit<scalar>::T, 1.f * unit<scalar>::T,
                                 1.f * unit<scalar>::T})));
+
+/// Test that the parameter updater records the same surface sequence as the
+/// surface sequencer actor, which can then be used by the direct navigator
+TEST(detray_propagator_direct_navigator, parameter_updater_surface_sequence) {
+  // Track generator configuration
+  using generator_t =
+      uniform_track_generator<free_track_parameters<test_algebra>>;
+
+  // Toy detector
+  using detector_t = host::detector<test::toy_metadata>;
+  using surface_t = typename detector_t::surface_type;
+
+  using navigator_t = caching_navigator<detector_t, cache_size>;
+  using direct_navigator_t = direct_navigator<detector_t>;
+
+  // Constant magnetic field and stepper type
+  using bfield_t = bfield::const_field_t<scalar>;
+  using stepper_t = rk_stepper<bfield_t::view_t, test_algebra>;
+
+  using actor_chain_t = actor_chain<
+      actor::parameter_updater<
+          test_algebra, actor::pointwise_material_interactor<test_algebra>>,
+      actor::surface_sequencer<surface_t>>;
+
+  using propagator_t = propagator<stepper_t, navigator_t, actor_chain_t>;
+  using direct_propagator_t =
+      propagator<stepper_t, direct_navigator_t, actor_chain_t>;
+
+  // Memory resource
+  vecmem::host_memory_resource host_mr;
+  vecmem::copy copy;
+
+  // Build toy detector
+  toy_det_config<scalar> toy_cfg =
+      toy_det_config<scalar>{}.n_brl_layers(4u).n_edc_layers(7u);
+  toy_cfg.use_material_maps(false);
+  const auto [det, names] = build_toy_detector<test_algebra>(host_mr, toy_cfg);
+
+  // Build mangetic field
+  const bfield_t bfield = create_const_field<scalar>(
+      vector3{0.f * unit<scalar>::T, 0.f * unit<scalar>::T,
+              2.f * unit<scalar>::T});
+  const bfield_t::view_t bfield_view(bfield);
+
+  // Track generator config
+  generator_t::configuration trk_gen_cfg{};
+  trk_gen_cfg.phi_steps(20u).theta_steps(20u);
+  trk_gen_cfg.p_tot(10.f * unit<scalar>::GeV);
+
+  // Propagation configuration
+  propagation::config cfg{};
+  cfg.navigation.intersection.overstep_tolerance =
+      static_cast<float>(-100.f * unit<scalar>::um);
+  cfg.navigation.search_window = {3u, 3u};
+  cfg.navigation.estimate_scattering_noise = false;
+  propagator_t p{cfg};
+  direct_propagator_t direct_p{cfg};
+
+  // Small capacity to test the buffer overflow
+  constexpr unsigned int small_capacity{2u};
+
+  for (auto track : generator_t{trk_gen_cfg}) {
+    actor::pointwise_material_interactor<test_algebra>::state
+        interactor_state{};
+
+    // Reference sequence from the surface sequencer
+    vecmem::data::vector_buffer<surface_t> seqs_buffer{
+        100u, host_mr, vecmem::data::buffer_type::resizable};
+    copy.setup(seqs_buffer)->wait();
+    vecmem::device_vector<surface_t> seqs_device(seqs_buffer);
+    actor::surface_sequencer<surface_t>::state sequencer_state(seqs_device);
+
+    // Let the parameter updater record the surfaces
+    std::vector<surface_t> updater_seq(100u);
+    actor::parameter_updater_state<test_algebra> updater_state{cfg, track};
+    ASSERT_FALSE(updater_state.has_surface_sequence());
+    updater_state.set_surface_sequence(
+        updater_seq.data(), static_cast<unsigned int>(updater_seq.size()));
+    ASSERT_TRUE(updater_state.has_surface_sequence());
+
+    propagator_t::state state(track, bfield_view, det);
+    auto actor_states =
+        detray::tie(updater_state, interactor_state, sequencer_state);
+    ASSERT_TRUE(p.propagate(state, actor_states));
+
+    // Same surfaces in the same order
+    const auto& ref_seq = sequencer_state.sequence();
+    ASSERT_FALSE(updater_state.surface_sequence_overflow());
+    ASSERT_EQ(updater_state.n_recorded_surfaces(), ref_seq.size());
+    for (unsigned int i = 0u; i < ref_seq.size(); i++) {
+      ASSERT_EQ(updater_seq.at(i), ref_seq.at(i));
+    }
+
+    // Some tracks do not encounter any surfaces
+    if (ref_seq.empty()) {
+      continue;
+    }
+
+    // The direct navigator has to follow the recorded sequence
+    vecmem::data::vector_buffer<surface_t> seqs_direct_buffer{
+        100u, host_mr, vecmem::data::buffer_type::resizable};
+    copy.setup(seqs_direct_buffer)->wait();
+    vecmem::device_vector<surface_t> seqs_direct_device(seqs_direct_buffer);
+    actor::surface_sequencer<surface_t>::state sequencer_direct_state(
+        seqs_direct_device);
+    actor::parameter_updater_state<test_algebra> direct_updater_state{cfg,
+                                                                      track};
+
+    const vecmem::data::vector_view<surface_t> updater_seq_view(
+        updater_state.n_recorded_surfaces(), updater_seq.data());
+    direct_propagator_t::state direct_state(track, bfield_view, det,
+                                            updater_seq_view);
+    auto direct_actor_states = detray::tie(
+        direct_updater_state, interactor_state, sequencer_direct_state);
+    ASSERT_TRUE(direct_p.propagate(direct_state, direct_actor_states));
+    ASSERT_TRUE(direct_state.navigation().finished());
+    ASSERT_EQ(sequencer_direct_state.sequence().size(), ref_seq.size());
+
+    // Overflow: count all surfaces, but do not write past the capacity
+    if (ref_seq.size() > small_capacity) {
+      std::vector<surface_t> small_seq(small_capacity);
+      actor::parameter_updater_state<test_algebra> small_updater_state{cfg,
+                                                                       track};
+      small_updater_state.set_surface_sequence(small_seq.data(),
+                                               small_capacity);
+      sequencer_state.sequence().clear();
+
+      propagator_t::state small_state(track, bfield_view, det);
+      auto small_actor_states =
+          detray::tie(small_updater_state, interactor_state, sequencer_state);
+      ASSERT_TRUE(p.propagate(small_state, small_actor_states));
+
+      ASSERT_TRUE(small_updater_state.surface_sequence_overflow());
+      ASSERT_EQ(small_updater_state.n_recorded_surfaces(), ref_seq.size());
+      // First entries are kept, the last slot holds the last surface
+      ASSERT_EQ(small_seq.front(), ref_seq.front());
+      ASSERT_EQ(small_seq.back(), ref_seq.back());
+    }
+  }
+}
 
 /// Fixture for Runge-Kutta Propagation with direct navigator and wire chamber
 class PropagatorWithRkStepperDirectNavigatorWireChamber

@@ -225,15 +225,19 @@ struct update_tip_length_buffer {
 };
 
 /// Alpaka kernel functor for @c traccc::device::build_tracks
+template <typename surface_t>
 struct build_tracks {
   template <typename TAcc>
   ALPAKA_FN_ACC void operator()(
       TAcc const& acc, bool run_mbf,
       const measurement_selector::config& calib_cfg,
-      const device::build_tracks_payload& payload) const {
+      const device::build_tracks_payload& payload,
+      const vecmem::data::jagged_vector_view<surface_t> track_surfaces_view)
+      const {
     device::global_index_t globalThreadIdx =
         ::alpaka::getIdx<::alpaka::Grid, ::alpaka::Threads>(acc)[0];
-    device::build_tracks(globalThreadIdx, run_mbf, calib_cfg, payload);
+    device::build_tracks<surface_t>(globalThreadIdx, run_mbf, calib_cfg,
+                                    payload, track_surfaces_view);
   }
 };
 
@@ -571,18 +575,28 @@ void combinatorial_kalman_filter_algorithm::update_tip_length_buffer_kernel(
 
 void combinatorial_kalman_filter_algorithm::build_tracks_kernel(
     unsigned int n_threads, bool run_mbf_smoother,
-    const measurement_selector::config& calib_cfg,
+    const measurement_selector::config& calib_cfg, const detector_buffer& det,
+    const move_only_any& track_surfaces,
     const device::build_tracks_payload& payload) const {
   // Establish the kernel launch parameters.
   const unsigned int deviceThreads = warp_size() * 2;
   const unsigned int deviceBlocks =
       (n_threads + deviceThreads - 1) / deviceThreads;
 
-  // Launch the kernel.
-  ::alpaka::exec<Acc>(details::get_queue(queue()),
-                      makeWorkDiv<Acc>(deviceBlocks, deviceThreads),
-                      kernels::build_tracks{}, run_mbf_smoother, calib_cfg,
-                      payload);
+  // Launch the kernel for the appropriate detector type.
+  detector_buffer_visitor<detector_type_list>(
+      det, [&]<detray::concepts::detector detector_t>(
+               const detray::detector_view_t<detector_t>&) {
+        using surface_t =
+            typename detray::detector_device_t<detector_t>::surface_type;
+
+        ::alpaka::exec<Acc>(
+            details::get_queue(queue()),
+            makeWorkDiv<Acc>(deviceBlocks, deviceThreads),
+            kernels::build_tracks<surface_t>{}, run_mbf_smoother, calib_cfg,
+            payload,
+            get_track_surfaces_view<surface_t>(track_surfaces, payload));
+      });
 }
 
 void combinatorial_kalman_filter_algorithm::synchronize() const {

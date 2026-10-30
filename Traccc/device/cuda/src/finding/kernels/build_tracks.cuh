@@ -12,10 +12,24 @@
 #include "traccc/finding/device/build_tracks.hpp"
 #include "traccc/finding/finding_config.hpp"
 
-namespace traccc::cuda::kernels {
+// Detray include(s).
+#include <detray/core/concepts.hpp>
 
-__global__ void build_tracks(
-    const __grid_constant__ bool run_mbf,
-    const __grid_constant__ measurement_selector::config calib_cfg,
-    const __grid_constant__ device::build_tracks_payload payload);
-}
+// VecMem include(s).
+#include <vecmem/containers/data/jagged_vector_view.hpp>
+
+// CUDA include(s).
+#include <cuda_runtime.h>
+
+namespace traccc::cuda {
+
+template <detray::concepts::detector detector_t>
+void build_tracks(
+    const dim3& grid_size, const dim3& block_size, std::size_t shared_mem_size,
+    const cudaStream_t& stream, bool run_mbf,
+    const measurement_selector::config& calib_cfg,
+    const device::build_tracks_payload& payload,
+    vecmem::data::jagged_vector_view<typename detector_t::surface_type>
+        track_surfaces_view);
+
+}  // namespace traccc::cuda

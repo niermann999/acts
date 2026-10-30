@@ -9,6 +9,7 @@
 #pragma once
 
 // Local include(s).
+#include "traccc/definitions/math.hpp"
 #include "traccc/device/global_index.hpp"
 #include "traccc/fitting/device/fit_payload.hpp"
 #include "traccc/fitting/status_codes.hpp"
@@ -50,6 +51,17 @@ TRACCC_HOST_DEVICE inline void fit_backward(
         fitter.config().meas_calibration);
 
     const kalman_fitter_status fit_status = fitter.smooth(fitter_state);
+
+    // The track finding (CKF/PKF) can already have filled the track quality:
+    // Restart the statistics on successful smoothing, but keep the number of
+    // holes, since the backward fit with the direct navigator does not count
+    // them (same as in the full fit iteration)
+    if (fit_status == kalman_fitter_status::SUCCESS) {
+      const unsigned int n_holes{track.nholes()};
+      track.reset_quality();
+      fitter_state.m_fit_actor_state.n_holes =
+          math::max(fitter_state.m_fit_actor_state.n_holes, n_holes);
+    }
 
     fitter.update_statistics(fitter_state);
 

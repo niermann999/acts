@@ -109,6 +109,28 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
     updater_state.set_full_jacobian(&(tmp_jacobian.at(param_id)));
   }
 
+  /*
+   * If we are running the Kalman smoother, the parameter transporter records
+   * the descriptors of all sensitive and material surfaces between the
+   * departure surface (excluded) and the next sensitive surface (included).
+   * They are stored per departure link and shared by all of its branches. At
+   * the first step, also the seed surface has to be added.
+   */
+  using surface_t = typename propagator_t::detector_type::surface_type;
+  if (payload.link_surfaces_ptr != nullptr) {
+    assert(payload.max_surfaces_per_step > 0u);
+
+    updater_state.set_surface_sequence(
+        static_cast<surface_t*>(payload.link_surfaces_ptr) +
+            link_idx * payload.max_surfaces_per_step,
+        payload.max_surfaces_per_step);
+
+    if (link.step == 0u) {
+      updater_state.template record_surface<surface_t>(
+          det_data_ptr->surface(in_par.surface_link()));
+    }
+  }
+
   // Notify the KF and material interaction only at the first propagation
   // initialization. For all subsequent initializations, they will have run
   // already on the previous step
@@ -149,6 +171,20 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
     }
   } else {
     params_liveness[param_id] = 0u;
+  }
+
+  if (payload.link_surfaces_ptr != nullptr) {
+    vecmem::device_vector<unsigned int> link_n_surfaces(
+        payload.link_n_surfaces_view);
+    link_n_surfaces.at(link_idx) = updater_state.n_recorded_surfaces();
+
+    // Do not continue tracks with an incomplete surface sequence
+    if (updater_state.surface_sequence_overflow()) {
+      TRACCC_WARNING_DEVICE(
+          "Surface sequence overflow: %d surfaces found (capacity %d)",
+          updater_state.n_recorded_surfaces(), payload.max_surfaces_per_step);
+      params_liveness[param_id] = 0u;
+    }
   }
 
   if (params_liveness[param_id] == 0 &&

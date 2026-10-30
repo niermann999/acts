@@ -211,6 +211,7 @@ class combinatorial_kalman_filter_algorithm
   void build_tracks_kernel(
       unsigned int n_threads, bool run_mbf_smoother,
       const measurement_selector::config& calib_cfg,
+      const detector_buffer& det, const move_only_any& track_surfaces,
       const device::build_tracks_payload& payload) const override;
 
   move_only_any create_device_detector(
