@@ -148,6 +148,14 @@ TEST_P(CkfToyDetectorTests, Run) {
   traccc::cuda::combinatorial_kalman_filter_algorithm device_finding(
       cfg, mr, copy, stream);
 
+  // Finding algorithm with the Kalman smoother
+  typename traccc::cuda::combinatorial_kalman_filter_algorithm::config_type
+      cfg_kalman = cfg;
+  cfg_kalman.run_smoother = smoother_type::e_kalman;
+
+  traccc::cuda::combinatorial_kalman_filter_algorithm device_finding_kalman(
+      cfg_kalman, mr, copy, stream);
+
   // Iterate over events
   for (std::size_t i_evt = 0; i_evt < n_events; i_evt++) {
     // Truth Track Candidates
@@ -198,6 +206,61 @@ TEST_P(CkfToyDetectorTests, Run) {
     ASSERT_GE(track_candidates_cuda.size(), n_truth_tracks)
         << "No. tracks (device): " << track_candidates_cuda.size() << "/"
         << n_truth_tracks;
+
+    /*****************************
+     * Run with the Kalman smoother
+     *****************************/
+    SCOPED_TRACE("Kalman smoother");
+
+    traccc::edm::track_container<traccc::default_algebra>::buffer
+        track_states_cuda_buffer = device_finding_kalman(
+            detector_buffer, field, measurements_buffer, seeds_buffer);
+
+    traccc::edm::track_container<traccc::default_algebra>::host
+        track_states_cuda{host_mr};
+    copy(track_states_cuda_buffer.tracks, track_states_cuda.tracks,
+         vecmem::copy::type::device_to_host)
+        ->wait();
+    copy(track_states_cuda_buffer.states, track_states_cuda.states,
+         vecmem::copy::type::device_to_host)
+        ->wait();
+
+    // The smoother must not change the track finding result
+    const std::size_t n_tracks = track_states_cuda.tracks.size();
+    ASSERT_EQ(n_tracks, track_candidates_cuda.size());
+
+    for (std::size_t i_trk = 0u; i_trk < n_tracks; i_trk++) {
+      const auto track = track_states_cuda.tracks.at(i_trk);
+
+      // Every measurement needs a track state for the smoother
+      ASSERT_GT(track.constituent_links().size(), 0u);
+      for (const auto& [type, index] : track.constituent_links()) {
+        ASSERT_EQ(type, edm::track_constituent_link::track_state);
+        ASSERT_LT(index, track_states_cuda.states.size());
+        ASSERT_FALSE(track_states_cuda.states.at(index).is_hole());
+      }
+
+      if (track.fit_outcome() != track_fit_outcome::SUCCESS) {
+        continue;
+      }
+
+      // All track states are smoothed and the track quality is not counted
+      // twice (track finding and smoother)
+      for (const auto& link : track.constituent_links()) {
+        ASSERT_TRUE(track_states_cuda.states.at(link.index).is_smoothed());
+      }
+      ndf_tests(track, track_states_cuda.states, measurements_per_event);
+      ASSERT_GE(track.chi2(), 0.f);
+      ASSERT_GE(track.pval(), 0.f);
+      ASSERT_LE(track.pval(), 1.f);
+    }
+
+    // Almost all tracks should be smoothed successfully
+    const std::size_t n_smoothed =
+        count_successfully_fitted_tracks(track_states_cuda.tracks);
+    ASSERT_GE(static_cast<float>(n_smoothed),
+              0.95f * static_cast<float>(n_tracks))
+        << "No. smoothed tracks (device): " << n_smoothed << "/" << n_tracks;
   }
 }
 

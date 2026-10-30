@@ -71,6 +71,23 @@ struct propagate_to_next_surface_payload {
   vecmem::data::vector_view<unsigned int> tip_lengths_view;
 
   vecmem::data::vector_view<bound_matrix<default_algebra> > tmp_jacobian_view;
+
+  /**
+   * @brief Type-erased pointer to the surface descriptors per departure link
+   * (detector surface type, @c max_surfaces_per_step entries per link).
+   * Surfaces are only recorded if this pointer is set.
+   */
+  void* link_surfaces_ptr = nullptr;
+
+  /**
+   * @brief View object to the number of recorded surfaces per departure link
+   */
+  vecmem::data::vector_view<unsigned int> link_n_surfaces_view{};
+
+  /**
+   * @brief Maximum number of surfaces that can be recorded per link
+   */
+  unsigned int max_surfaces_per_step = 0u;
 };
 
 /// Function for propagating the kalman-updated tracks to the next surface

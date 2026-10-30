@@ -79,6 +79,7 @@ struct gather_measurement_votes {};
 
 struct update_tip_length_buffer {};
 
+template <detray::concepts::detector detector_t>
 struct build_tracks {};
 
 }  // namespace kernels
@@ -469,18 +470,31 @@ void combinatorial_kalman_filter_algorithm::update_tip_length_buffer_kernel(
 
 void combinatorial_kalman_filter_algorithm::build_tracks_kernel(
     unsigned int n_threads, bool run_mbf_smoother,
-    const measurement_selector::config& calib_cfg,
+    const measurement_selector::config& calib_cfg, const detector_buffer& det,
+    const move_only_any& track_surfaces,
     const device::build_tracks_payload& payload) const {
   ::sycl::queue& squeue = details::get_queue(queue());
   squeue.throw_asynchronous();
-  squeue.submit([&](::sycl::handler& h) {
-    h.parallel_for<kernels::build_tracks>(
-        details::calculate1DimNdRange(n_threads, warp_size() * 2),
-        [run_mbf_smoother, calib_cfg, payload](::sycl::nd_item<1> item) {
-          device::build_tracks(details::global_index(item), run_mbf_smoother,
-                               calib_cfg, payload);
+  detector_buffer_visitor<detector_type_list>(
+      det, [&]<detray::concepts::detector detector_t>(
+               const detray::detector_view_t<detector_t>&) {
+        using surface_t =
+            typename detray::detector_device_t<detector_t>::surface_type;
+        const vecmem::data::jagged_vector_view<surface_t> track_surfaces_view =
+            get_track_surfaces_view<surface_t>(track_surfaces, payload);
+
+        squeue.submit([&](::sycl::handler& h) {
+          h.parallel_for<
+              kernels::build_tracks<detector_tag_selector_t<detector_t>>>(
+              details::calculate1DimNdRange(n_threads, warp_size() * 2),
+              [run_mbf_smoother, calib_cfg, payload,
+               track_surfaces_view](::sycl::nd_item<1> item) {
+                device::build_tracks<surface_t>(details::global_index(item),
+                                                run_mbf_smoother, calib_cfg,
+                                                payload, track_surfaces_view);
+              });
         });
-  });
+      });
 }
 
 void combinatorial_kalman_filter_algorithm::synchronize() const {

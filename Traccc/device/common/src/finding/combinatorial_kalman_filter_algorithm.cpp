@@ -11,9 +11,13 @@
 
 // Project include(s).
 #include "traccc/finding/candidate_link.hpp"
+#include "traccc/geometry/detector.hpp"
+#include "traccc/geometry/detector_type_list.hpp"
 
 // System include(s).
+#include <cstdint>
 #include <stdexcept>
+#include <type_traits>
 
 namespace traccc::device {
 
@@ -112,33 +116,39 @@ auto combinatorial_kalman_filter_algorithm::operator()(
   // Prepare the payload for the fitting kernel (only for valid fitting alg.)
   kalman_fitting_algorithm::fit_payload smoothing_payload{det, bfield};
 
-  if (cfg.run_smoother == smoother_type::e_kalman) {
-    assert(m_kf_fitter != nullptr);
+  // Order and liveness of the tracks for the Kalman smoother (CKF only). They
+  // have to live until the smoother has finished.
+  vecmem::data::vector_buffer<device::sort_key> track_sort_keys_buffer;
+  vecmem::data::vector_buffer<unsigned int> track_indices_buffer;
+  vecmem::data::vector_buffer<unsigned int> track_liveness_buffer;
 
-    // Setup the surface sequence buffer
-    const unsigned int n_surfaces_per_track{
-        std::max(cfg.max_track_candidates_per_track *
-                     cfg.kalman_smoother.surface_sequence_size_factor,
-                 cfg.kalman_smoother.min_surface_sequence_capacity)};
-    std::vector<unsigned int> seqs_sizes(n_seeds, n_surfaces_per_track);
+  // Setup the surface sequence buffer with one sequence per track
+  auto prepare_smoothing_payload =
+      [&](const unsigned int n_tracks,
+          vecmem::data::vector_view<const unsigned int> track_indices_view,
+          vecmem::data::vector_view<unsigned int> track_liveness_view) {
+        assert(m_kf_fitter != nullptr);
 
-    // Not needed for PKF
-    vecmem::data::vector_view<unsigned int> param_ids_view{};
-    vecmem::data::vector_view<unsigned int> param_liveness_view{};
+        const unsigned int n_surfaces_per_track{
+            std::max(cfg.max_track_candidates_per_track *
+                         cfg.kalman_smoother.surface_sequence_size_factor,
+                     cfg.kalman_smoother.min_surface_sequence_capacity)};
+        std::vector<unsigned int> seqs_sizes(n_tracks, n_surfaces_per_track);
 
-    kalman_fitting_algorithm::fit_payload tmp =
-        m_kf_fitter->prepare_fit_payload(
-            det, bfield, seqs_sizes,
-            {param_ids_view, param_liveness_view, track_candidates_buffer});
+        kalman_fitting_algorithm::fit_payload tmp =
+            m_kf_fitter->prepare_fit_payload(
+                det, bfield, seqs_sizes,
+                {track_indices_view, track_liveness_view,
+                 track_candidates_buffer});
 
-    // Save the (non-templated) host payload.
-    smoothing_payload.payload = tmp.payload;
+        // Save the (non-templated) host payload.
+        smoothing_payload.payload = tmp.payload;
 
-    // Save all the type erased payloads into it.
-    smoothing_payload.surfaces = std::move(tmp.surfaces);
-    smoothing_payload.host_tpayload = tmp.host_tpayload;
-    smoothing_payload.device_tpayload = std::move(tmp.device_tpayload);
-  }
+        // Save all the type erased payloads into it.
+        smoothing_payload.surfaces = std::move(tmp.surfaces);
+        smoothing_payload.host_tpayload = tmp.host_tpayload;
+        smoothing_payload.device_tpayload = std::move(tmp.device_tpayload);
+      };
 
   /*****************************************************************
    * Progressive Kalman Filter
@@ -146,6 +156,11 @@ auto combinatorial_kalman_filter_algorithm::operator()(
 
   if (cfg.run_pkf && (cfg.max_num_branches_per_seed == 1 ||
                       cfg.max_num_branches_per_surface == 1)) {
+    if (cfg.run_smoother == smoother_type::e_kalman) {
+      // Order and liveness are not needed for the PKF
+      prepare_smoothing_payload(n_seeds, {}, {});
+    }
+
     // Create track candidate buffer
     vecmem::vector<unsigned int> n_constituent_links(mr().host);
     n_constituent_links.resize(n_seeds, cfg.max_track_candidates_per_track);
@@ -255,10 +270,62 @@ auto combinatorial_kalman_filter_algorithm::operator()(
      * finding, we need some space to store the intermediate Jacobians
      * and parameters. Allocate that space here.
      */
-    if (cfg.run_smoother == smoother_type::e_mbf) {
+    const bool run_mbf = (cfg.run_smoother == smoother_type::e_mbf);
+    // Both smoothers need the filtered track states from the track finding
+    const bool make_track_states =
+        run_mbf || (cfg.run_smoother == smoother_type::e_kalman);
+
+    if (run_mbf) {
       jacobian_buffer = {link_buffer_capacity, mr().main};
       link_predicted_parameter_buffer = {link_buffer_capacity, mr().main};
+    }
+    if (make_track_states) {
       link_filtered_parameter_buffer = {link_buffer_capacity, mr().main};
+    }
+
+    /*
+     * If we are aiming to run the Kalman smoother at the end of the track
+     * finding, the propagation records the surface descriptors per departure
+     * link. The descriptor type depends on the detector, so the buffer is
+     * allocated as untyped (8 byte aligned) memory.
+     */
+    const bool collect_surfaces = (cfg.run_smoother == smoother_type::e_kalman);
+    const unsigned int max_surfaces_per_step =
+        cfg.kalman_smoother.surface_sequence_size_factor;
+    const std::size_t surface_size =
+        collect_surfaces
+            ? detector_buffer_visitor<detector_type_list>(
+                  det,
+                  [&]<detray::concepts::detector detector_t>(
+                      const detray::detector_view_t<detector_t>&) {
+                    using surface_t = typename detray::detector_device_t<
+                        detector_t>::surface_type;
+                    static_assert(std::is_trivially_copyable_v<surface_t>);
+                    static_assert(alignof(surface_t) <= alignof(std::uint64_t));
+                    return sizeof(surface_t);
+                  })
+            : 0u;
+
+    // Size of the link surface buffer in units of 8 bytes
+    auto link_surfaces_size = [&](const unsigned int n_links) {
+      return static_cast<unsigned int>(
+          (static_cast<std::size_t>(n_links) * max_surfaces_per_step *
+               surface_size +
+           sizeof(std::uint64_t) - 1u) /
+          sizeof(std::uint64_t));
+    };
+
+    vecmem::data::vector_buffer<std::uint64_t> link_surfaces_buffer;
+    vecmem::data::vector_buffer<unsigned int> link_n_surfaces_buffer;
+    if (collect_surfaces) {
+      if (max_surfaces_per_step == 0u) {
+        throw std::invalid_argument(
+            "The surface sequence size factor of the Kalman smoother must be "
+            "larger than zero");
+      }
+      link_surfaces_buffer = {link_surfaces_size(link_buffer_capacity),
+                              mr().main};
+      link_n_surfaces_buffer = {link_buffer_capacity, mr().main};
     }
 
     // Create a buffer of tip links
@@ -321,31 +388,52 @@ auto combinatorial_kalman_filter_algorithm::operator()(
 
         links_buffer = std::move(new_links_buffer);
 
-        if (cfg.run_smoother == smoother_type::e_mbf) {
+        if (run_mbf) {
           // Create new, larger buffers for the MBF smoother data.
           vecmem::data::vector_buffer<bound_matrix<algebra_t>>
               new_jacobian_buffer{link_buffer_capacity, mr().main};
           bound_track_parameters_collection_types::buffer
               new_link_predicted_parameter_buffer{link_buffer_capacity,
-                                                  mr().main},
-              new_link_filtered_parameter_buffer{link_buffer_capacity,
-                                                 mr().main};
+                                                  mr().main};
 
           // Copy old data to new buffers.
           copy()(jacobian_buffer, new_jacobian_buffer)->ignore();
           copy()(link_predicted_parameter_buffer,
                  new_link_predicted_parameter_buffer)
-              ->ignore();
-          copy()(link_filtered_parameter_buffer,
-                 new_link_filtered_parameter_buffer)
               ->wait();
 
           // Replace old buffers with the new ones.
           jacobian_buffer = std::move(new_jacobian_buffer);
           link_predicted_parameter_buffer =
               std::move(new_link_predicted_parameter_buffer);
+        }
+
+        if (make_track_states) {
+          // Create a new, larger buffer for the filtered parameters.
+          bound_track_parameters_collection_types::buffer
+              new_link_filtered_parameter_buffer{link_buffer_capacity,
+                                                 mr().main};
+          copy()(link_filtered_parameter_buffer,
+                 new_link_filtered_parameter_buffer)
+              ->wait();
           link_filtered_parameter_buffer =
               std::move(new_link_filtered_parameter_buffer);
+        }
+
+        if (collect_surfaces) {
+          // Create new, larger buffers for the surface descriptors.
+          vecmem::data::vector_buffer<std::uint64_t> new_link_surfaces_buffer{
+              link_surfaces_size(link_buffer_capacity), mr().main};
+          vecmem::data::vector_buffer<unsigned int> new_link_n_surfaces_buffer{
+              link_buffer_capacity, mr().main};
+
+          // Copy old data to new buffers.
+          copy()(link_surfaces_buffer, new_link_surfaces_buffer)->ignore();
+          copy()(link_n_surfaces_buffer, new_link_n_surfaces_buffer)->wait();
+
+          // Replace old buffers with the new ones.
+          link_surfaces_buffer = std::move(new_link_surfaces_buffer);
+          link_n_surfaces_buffer = std::move(new_link_n_surfaces_buffer);
         }
       }
 
@@ -518,7 +606,11 @@ auto combinatorial_kalman_filter_algorithm::operator()(
              .n_in_params = n_candidates,
              .tips_view = tips_buffer,
              .tip_lengths_view = tip_length_buffer,
-             .tmp_jacobian_view = tmp_jacobian_buffer});
+             .tmp_jacobian_view = tmp_jacobian_buffer,
+             .link_surfaces_ptr =
+                 collect_surfaces ? link_surfaces_buffer.ptr() : nullptr,
+             .link_n_surfaces_view = link_n_surfaces_buffer,
+             .max_surfaces_per_step = max_surfaces_per_step});
 
         // Propagation must finish before this iteration releases param_ids.
         synchronize();
@@ -634,10 +726,11 @@ auto combinatorial_kalman_filter_algorithm::operator()(
     }
 
     unsigned int n_states = 0u;
-    if (cfg.run_smoother == smoother_type::e_mbf) {
+    if (make_track_states) {
       n_states =
           std::accumulate(tips_length_host.begin(), tips_length_host.end(), 0u);
     }
+    const auto n_tracks = static_cast<unsigned int>(tips_length_host.size());
 
     // Create track buffer
     track_candidates_buffer =
@@ -648,14 +741,26 @@ auto combinatorial_kalman_filter_algorithm::operator()(
     copy().setup(track_candidates_buffer.tracks)->ignore();
     copy().setup(track_candidates_buffer.states)->ignore();
 
+    // One surface sequence per output track for the Kalman smoother, as well
+    // as the order in which the tracks are smoothed and their liveness
+    if (collect_surfaces) {
+      track_sort_keys_buffer = {n_tracks, mr().main};
+      track_indices_buffer = {n_tracks, mr().main};
+      track_liveness_buffer = {n_tracks, mr().main};
+      copy().memset(track_liveness_buffer, 0)->ignore();
+
+      prepare_smoothing_payload(n_tracks, track_indices_buffer,
+                                track_liveness_buffer);
+    }
+
     smoothing_payload.payload.tracks = track_candidates_buffer;
 
     // @Note: nBlocks can be zero in case there is no tip. This happens when
     // chi2_max cfg is set tightly and no tips are found
     if (n_tips_total > 0) {
       build_tracks_kernel(
-          n_tips_total, cfg.run_smoother == smoother_type::e_mbf,
-          cfg.meas_calibration,
+          n_tips_total, run_mbf, cfg.meas_calibration, det,
+          smoothing_payload.surfaces,
           {.seeds_view = seeds,
            .links_view = links_buffer,
            .tips_view = tips_buffer,
@@ -663,7 +768,23 @@ auto combinatorial_kalman_filter_algorithm::operator()(
            .tip_to_output_map = tip_to_output_map,
            .jacobian_ptr = jacobian_buffer.ptr(),
            .link_predicted_parameter_view = link_predicted_parameter_buffer,
-           .link_filtered_parameter_view = link_filtered_parameter_buffer});
+           .link_filtered_parameter_view = link_filtered_parameter_buffer,
+           .link_surfaces_ptr =
+               collect_surfaces ? link_surfaces_buffer.ptr() : nullptr,
+           .link_n_surfaces_view = link_n_surfaces_buffer,
+           .max_surfaces_per_step = max_surfaces_per_step,
+           .track_sort_keys_view = track_sort_keys_buffer,
+           .track_indices_view = track_indices_buffer,
+           .track_liveness_view = track_liveness_buffer});
+
+      // Smooth the tracks in the order of their number of measurements
+      if (collect_surfaces) {
+        vecmem::data::vector_view<device::sort_key> keys_view =
+            track_sort_keys_buffer;
+        vecmem::data::vector_view<unsigned int> indices_view =
+            track_indices_buffer;
+        sort_param_ids_by_keys(keys_view, indices_view);
+      }
 
       // Track building reads the link, tip, and optional smoother buffers
       // owned by this branch.

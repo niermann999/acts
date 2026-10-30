@@ -347,17 +347,26 @@ void combinatorial_kalman_filter_algorithm::update_tip_length_buffer_kernel(
 
 void combinatorial_kalman_filter_algorithm::build_tracks_kernel(
     unsigned int n_threads, bool run_mbf_smoother,
-    const measurement_selector::config& calib_cfg,
+    const measurement_selector::config& calib_cfg, const detector_buffer& det,
+    const move_only_any& track_surfaces,
     const device::build_tracks_payload& payload) const {
   // Establish the kernel launch parameters.
   const unsigned int deviceThreads = warp_size() * 2;
   const unsigned int deviceBlocks =
       (n_threads + deviceThreads - 1) / deviceThreads;
 
-  // Launch the kernel.
-  kernels::build_tracks<<<deviceBlocks, deviceThreads, 0,
-                          details::get_stream(stream())>>>(run_mbf_smoother,
-                                                           calib_cfg, payload);
+  // Launch the kernel for the appropriate detector type.
+  detector_buffer_visitor<detector_type_list>(
+      det, [&]<detray::concepts::detector detector_t>(
+               const detray::detector_view_t<detector_t>&) {
+        using detector_device_t = detray::detector_device_t<detector_t>;
+        using surface_t = typename detector_device_t::surface_type;
+
+        build_tracks<detector_device_t>(
+            deviceBlocks, deviceThreads, 0, details::get_stream(stream()),
+            run_mbf_smoother, calib_cfg, payload,
+            get_track_surfaces_view<surface_t>(track_surfaces, payload));
+      });
   TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
 }
 

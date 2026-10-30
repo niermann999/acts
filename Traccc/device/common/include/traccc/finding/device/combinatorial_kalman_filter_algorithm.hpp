@@ -40,6 +40,8 @@
 #include "traccc/utils/messaging.hpp"
 
 // VecMem include(s).
+#include <vecmem/containers/data/jagged_vector_buffer.hpp>
+#include <vecmem/containers/data/jagged_vector_view.hpp>
 #include <vecmem/containers/data/vector_buffer.hpp>
 
 // System include(s).
@@ -255,15 +257,37 @@ class combinatorial_kalman_filter_algorithm
   /// @param n_threads The number of threads to launch the kernel with
   /// @param run_mbf_smoother Whether the MBF smoother was run
   /// @param calib_cfg The measurement selector calibration configuration
+  /// @param det The detector object
+  /// @param track_surfaces The type-erased surface sequence buffer per track
+  ///                       (only used if surfaces were collected)
   /// @param payload The payload for the kernel
   ///
   virtual void build_tracks_kernel(
       unsigned int n_threads, bool run_mbf_smoother,
-      const measurement_selector::config& calib_cfg,
+      const measurement_selector::config& calib_cfg, const detector_buffer& det,
+      const move_only_any& track_surfaces,
       const device::build_tracks_payload& payload) const = 0;
 
   virtual move_only_any create_device_detector(
       const detector_buffer& det) const = 0;
+
+  /// Get the typed view of the surface sequences per track
+  ///
+  /// @tparam surface_t The surface descriptor type of the detector
+  ///
+  /// @param track_surfaces The type-erased surface sequence buffer per track
+  /// @param payload The payload of the @c build_tracks kernel
+  ///
+  /// @returns an empty view if no surfaces were collected
+  template <typename surface_t>
+  static vecmem::data::jagged_vector_view<surface_t> get_track_surfaces_view(
+      const move_only_any& track_surfaces,
+      const device::build_tracks_payload& payload) {
+    if (payload.link_surfaces_ptr == nullptr) {
+      return {};
+    }
+    return track_surfaces.as<vecmem::data::jagged_vector_buffer<surface_t>>();
+  }
 
   /// Wait for all work this algorithm enqueued to complete
   virtual void synchronize() const = 0;
