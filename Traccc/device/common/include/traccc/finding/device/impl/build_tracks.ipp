@@ -11,7 +11,6 @@
 // Project include(s).
 #include <type_traits>
 
-#include "traccc/definitions/math.hpp"
 #include "traccc/edm/measurement_helpers.hpp"
 #include "traccc/edm/track_parameters.hpp"
 #include "traccc/edm/track_state_helpers.hpp"
@@ -32,17 +31,18 @@ namespace details {
 /// Assemble the surface sequence of a track from the surface descriptors
 /// that were recorded per departure link during the propagation
 ///
-/// The surfaces between the link @c L and its previous link are stored at
-/// the previous link: @c [material..., sensitive surface of L]. For the
-/// links of the first step, the seed surface is the first entry. The ranges
-/// are collected from the last measurement back to the seed and the sequence
-/// is reversed at the end.
+/// The surfaces between the link @c L and its previous link @c P are stored
+/// at @c P: @c [material..., sensitive surface of L]. For the links of the
+/// first step, the seed surface is the first entry, if the link is not a
+/// hole. The propagation already removed the sensitive surfaces without a
+/// track state and computed the position of every range in the sequence
+/// (@c link_surface_range::offset). Therefore, the ranges can be copied
+/// directly into the sequence in forward order, without reordering.
 ///
 /// The backward fit with the direct navigator expects a track state on every
 /// sensitive surface in the sequence. Therefore, the sensitive surfaces of
-/// holes are not added. The same applies to sensitive surfaces that the CKF
-/// aborter passed without a measurement search (closer than the minimum step
-/// length to the departure surface).
+/// holes are not added: this is the last entry of the range at @c P, if @c L
+/// is a hole.
 ///
 /// @tparam surface_t The surface descriptor type of the detector
 ///
@@ -50,22 +50,22 @@ namespace details {
 /// @param links     The candidate links
 /// @param n_meas    The number of measurements
 /// @param payload   The build tracks payload with the link surface data
-/// @param sequence  The output surface sequence of the track
+/// @param sequence  The output surface sequence of the track (empty)
 ///
-/// @returns false if the sequence overflowed or is empty
+/// @returns false if the sequence does not fit into the buffer or is empty
 template <typename surface_t>
 TRACCC_HOST_DEVICE inline bool fill_surface_sequence(
     const unsigned int tip,
     const vecmem::device_vector<const candidate_link>& links,
     const unsigned int n_meas, const build_tracks_payload& payload,
     vecmem::device_vector<surface_t> sequence) {
+  static_assert(std::is_trivially_copyable_v<surface_t>);
+
   const auto* link_surfaces =
       static_cast<const surface_t*>(payload.link_surfaces_ptr);
-  const vecmem::device_vector<const unsigned int> link_n_surfaces(
-      payload.link_n_surfaces_view);
+  const vecmem::device_vector<const link_surface_range> link_surface_ranges(
+      payload.link_surface_ranges_view);
   const unsigned int max_n_sf = payload.max_surfaces_per_step;
-
-  sequence.clear();
 
   // Skip the holes after the last measurement
   candidate_link L = links.at(tip);
@@ -73,49 +73,44 @@ TRACCC_HOST_DEVICE inline bool fill_surface_sequence(
     L = links.at(L.previous_candidate_idx);
   }
 
-  // Collect the surfaces of every step in reverse order
-  while (L.step != 0u) {
-    const unsigned int prev_idx = L.previous_candidate_idx;
-    const candidate_link P = links.at(prev_idx);
-    const unsigned int n_sf = math::min(link_n_surfaces.at(prev_idx), max_n_sf);
-
-    // Leave out the sensitive surface of L, if it is a hole, and the seed
-    // surface, if the first link is a hole
-    const unsigned int first =
-        (P.step == 0u && P.meas_idx >= n_meas) ? math::min(1u, n_sf) : 0u;
-    const unsigned int last =
-        (L.meas_idx >= n_meas && n_sf > first) ? n_sf - 1u : n_sf;
-
-    for (unsigned int i = last; i > first; --i) {
-      const unsigned int sf_idx = i - 1u;
-      const surface_t& sf_desc = link_surfaces[prev_idx * max_n_sf + sf_idx];
-
-      // Only the sensitive surface of L and the seed surface have a track
-      // state: Leave out all other sensitive surfaces
-      const bool has_track_state =
-          (sf_idx == n_sf - 1u) || (P.step == 0u && sf_idx == 0u);
-      if (sf_desc.is_sensitive() && !has_track_state) {
-        continue;
-      }
-
-      if (sequence.size() == sequence.capacity()) {
-        TRACCC_WARNING_DEVICE("Surface sequence overflow for track with tip %d",
-                              tip);
-        sequence.clear();
-        return false;
-      }
-      sequence.push_back(sf_desc);
-    }
-
-    L = P;
+  // No propagation step with a measurement at its end
+  if (L.step == 0u) {
+    sequence.resize_implicit(0u);
+    return false;
   }
 
-  // Forward order for the direct navigator
-  const unsigned int n_total = sequence.size();
-  for (unsigned int i = 0u; i < n_total / 2u; ++i) {
-    const surface_t tmp = sequence[i];
-    sequence[i] = sequence[n_total - 1u - i];
-    sequence[n_total - 1u - i] = tmp;
+  // The length of the sequence is known before the first write
+  const link_surface_range last_range =
+      link_surface_ranges.at(L.previous_candidate_idx);
+  const unsigned int n_total = last_range.offset + last_range.n_surfaces;
+
+  if (n_total > sequence.capacity()) {
+    TRACCC_WARNING_DEVICE(
+        "Surface sequence overflow for track with tip %d (%d surfaces)", tip,
+        n_total);
+    sequence.resize_implicit(0u);
+    return false;
+  }
+
+  // Reserve the elements once and write them in forward order
+  sequence.resize_implicit(n_total);
+  surface_t* const seq_data = sequence.data();
+
+  while (L.step != 0u) {
+    const unsigned int prev_idx = L.previous_candidate_idx;
+    const link_surface_range range = link_surface_ranges.at(prev_idx);
+
+    // Leave out the sensitive surface of L, if it is a hole
+    const unsigned int n_sf =
+        range.n_surfaces - ((L.meas_idx >= n_meas) ? 1u : 0u);
+    assert(range.offset + n_sf <= n_total);
+
+    const surface_t* const src = link_surfaces + prev_idx * max_n_sf;
+    for (unsigned int i = 0u; i < n_sf; ++i) {
+      seq_data[range.offset + i] = src[i];
+    }
+
+    L = links.at(prev_idx);
   }
 
   return n_total > 0u;

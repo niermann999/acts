@@ -109,6 +109,7 @@ traccc_add_library( traccc_device_common device_common
    # Track finding functions(s).
    "include/traccc/finding/device/geo_id_surface_comparator.hpp"
    "include/traccc/finding/device/build_tracks.hpp"
+   "include/traccc/finding/device/link_surface_range.hpp"
    "include/traccc/finding/device/find_tracks_payload.hpp"
    "include/traccc/finding/device/find_tracks.hpp"
    "include/traccc/finding/device/gather_best_tips_per_measurement.hpp"

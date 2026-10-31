@@ -17,6 +17,7 @@
 #include "traccc/edm/track_container.hpp"
 #include "traccc/edm/track_parameters.hpp"
 #include "traccc/finding/candidate_link.hpp"
+#include "traccc/finding/device/link_surface_range.hpp"
 #include "traccc/finding/finding_config.hpp"
 #include "traccc/finding/measurement_selector.hpp"
 
@@ -64,9 +65,10 @@ struct build_tracks_payload {
   const void* link_surfaces_ptr = nullptr;
 
   /**
-   * @brief View object to the number of recorded surfaces per departure link
+   * @brief View object to the recorded surface range per departure link
    */
-  vecmem::data::vector_view<const unsigned int> link_n_surfaces_view{};
+  vecmem::data::vector_view<const link_surface_range>
+      link_surface_ranges_view{};
 
   /**
    * @brief Maximum number of surfaces that can be recorded per link

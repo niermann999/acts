@@ -11,13 +11,16 @@
 
 // Project include(s).
 #include "traccc/finding/candidate_link.hpp"
+#include "traccc/finding/device/link_surface_range.hpp"
 #include "traccc/geometry/detector.hpp"
 #include "traccc/geometry/detector_type_list.hpp"
 
 // System include(s).
+#include <algorithm>
 #include <cstdint>
 #include <stdexcept>
 #include <type_traits>
+#include <vector>
 
 namespace traccc::device {
 
@@ -124,22 +127,15 @@ auto combinatorial_kalman_filter_algorithm::operator()(
 
   // Setup the surface sequence buffer with one sequence per track
   auto prepare_smoothing_payload =
-      [&](const unsigned int n_tracks,
+      [&](const std::vector<unsigned int>& seqs_sizes,
           vecmem::data::vector_view<const unsigned int> track_indices_view,
           vecmem::data::vector_view<unsigned int> track_liveness_view) {
         assert(m_kf_fitter != nullptr);
 
-        const unsigned int n_surfaces_per_track{
-            std::max(cfg.max_track_candidates_per_track *
-                         cfg.kalman_smoother.surface_sequence_size_factor,
-                     cfg.kalman_smoother.min_surface_sequence_capacity)};
-        std::vector<unsigned int> seqs_sizes(n_tracks, n_surfaces_per_track);
-
-        kalman_fitting_algorithm::fit_payload tmp =
-            m_kf_fitter->prepare_fit_payload(
-                det, bfield, seqs_sizes,
-                {track_indices_view, track_liveness_view,
-                 track_candidates_buffer});
+    kalman_fitting_algorithm::fit_payload tmp =
+        m_kf_fitter->prepare_fit_payload(
+            det, bfield, seqs_sizes,
+            {track_indices_view, track_liveness_view, track_candidates_buffer});
 
         // Save the (non-templated) host payload.
         smoothing_payload.payload = tmp.payload;
@@ -157,8 +153,14 @@ auto combinatorial_kalman_filter_algorithm::operator()(
   if (cfg.run_pkf && (cfg.max_num_branches_per_seed == 1 ||
                       cfg.max_num_branches_per_surface == 1)) {
     if (cfg.run_smoother == smoother_type::e_kalman) {
-      // Order and liveness are not needed for the PKF
-      prepare_smoothing_payload(n_seeds, {}, {});
+      // The PKF records the full sequence during the filtering: Use the same
+      // capacity as the Kalman fitter. Order and liveness are not needed.
+      const unsigned int n_surfaces_per_track{
+          std::max(cfg.max_track_candidates_per_track *
+                       cfg.kalman_smoother.surface_sequence_size_factor,
+                   cfg.kalman_smoother.min_surface_sequence_capacity)};
+      prepare_smoothing_payload(
+          std::vector<unsigned int>(n_seeds, n_surfaces_per_track), {}, {});
     }
 
     // Create track candidate buffer
@@ -316,7 +318,7 @@ auto combinatorial_kalman_filter_algorithm::operator()(
     };
 
     vecmem::data::vector_buffer<std::uint64_t> link_surfaces_buffer;
-    vecmem::data::vector_buffer<unsigned int> link_n_surfaces_buffer;
+    vecmem::data::vector_buffer<link_surface_range> link_surface_ranges_buffer;
     if (collect_surfaces) {
       if (max_surfaces_per_step == 0u) {
         throw std::invalid_argument(
@@ -325,7 +327,7 @@ auto combinatorial_kalman_filter_algorithm::operator()(
       }
       link_surfaces_buffer = {link_surfaces_size(link_buffer_capacity),
                               mr().main};
-      link_n_surfaces_buffer = {link_buffer_capacity, mr().main};
+      link_surface_ranges_buffer = {link_buffer_capacity, mr().main};
     }
 
     // Create a buffer of tip links
@@ -384,43 +386,66 @@ auto combinatorial_kalman_filter_algorithm::operator()(
             link_buffer_capacity, mr().main,
             vecmem::data::buffer_type::resizable);
         copy().setup(new_links_buffer)->ignore();
-        copy()(links_buffer, new_links_buffer)->wait();
 
-        links_buffer = std::move(new_links_buffer);
+        // New, larger buffers for the smoother data (only if needed)
+        vecmem::data::vector_buffer<bound_matrix<algebra_t>>
+            new_jacobian_buffer;
+        bound_track_parameters_collection_types::buffer
+            new_link_predicted_parameter_buffer,
+            new_link_filtered_parameter_buffer;
+        vecmem::data::vector_buffer<std::uint64_t> new_link_surfaces_buffer;
+        vecmem::data::vector_buffer<link_surface_range>
+            new_link_surface_ranges_buffer;
+
+        // Copy the old data to the new buffers. The copies run in order, so
+        // only the last one has to be waited for, before the old buffers are
+        // released.
+        vecmem::copy::event_type last_copy =
+            copy()(links_buffer, new_links_buffer);
+        auto enqueue_copy = [&](const auto& src, auto& dst) {
+          last_copy->ignore();
+          last_copy = copy()(src, dst);
+        };
 
         if (run_mbf) {
-          // Create new, larger buffers for the MBF smoother data.
-          vecmem::data::vector_buffer<bound_matrix<algebra_t>>
-              new_jacobian_buffer{link_buffer_capacity, mr().main};
-          bound_track_parameters_collection_types::buffer
-              new_link_predicted_parameter_buffer{link_buffer_capacity,
-                                                  mr().main};
+          new_jacobian_buffer = {link_buffer_capacity, mr().main};
+          new_link_predicted_parameter_buffer = {link_buffer_capacity,
+                                                 mr().main};
+          enqueue_copy(jacobian_buffer, new_jacobian_buffer);
+          enqueue_copy(link_predicted_parameter_buffer,
+                       new_link_predicted_parameter_buffer);
+        }
+        if (make_track_states) {
+          new_link_filtered_parameter_buffer = {link_buffer_capacity,
+                                                mr().main};
+          enqueue_copy(link_filtered_parameter_buffer,
+                       new_link_filtered_parameter_buffer);
+        }
+        if (collect_surfaces) {
+          new_link_surfaces_buffer = {link_surfaces_size(link_buffer_capacity),
+                                      mr().main};
+          new_link_surface_ranges_buffer = {link_buffer_capacity, mr().main};
+          enqueue_copy(link_surfaces_buffer, new_link_surfaces_buffer);
+          enqueue_copy(link_surface_ranges_buffer,
+                       new_link_surface_ranges_buffer);
+        }
 
-          // Copy old data to new buffers.
-          copy()(jacobian_buffer, new_jacobian_buffer)->ignore();
-          copy()(link_predicted_parameter_buffer,
-                 new_link_predicted_parameter_buffer)
-              ->wait();
+        // Single host synchronization for all copies
+        last_copy->wait();
 
-          // Replace old buffers with the new ones.
+        // Replace the old buffers with the new ones.
+        links_buffer = std::move(new_links_buffer);
+        if (run_mbf) {
           jacobian_buffer = std::move(new_jacobian_buffer);
           link_predicted_parameter_buffer =
               std::move(new_link_predicted_parameter_buffer);
         }
-
         if (make_track_states) {
-          // Create a new, larger buffer for the filtered parameters.
-          bound_track_parameters_collection_types::buffer
-              new_link_filtered_parameter_buffer{link_buffer_capacity,
-                                                 mr().main};
-          copy()(link_filtered_parameter_buffer,
-                 new_link_filtered_parameter_buffer)
-              ->wait();
           link_filtered_parameter_buffer =
               std::move(new_link_filtered_parameter_buffer);
         }
-
         if (collect_surfaces) {
+<<<<<<< HEAD
           // Create new, larger buffers for the surface descriptors.
           vecmem::data::vector_buffer<std::uint64_t> new_link_surfaces_buffer{
               link_surfaces_size(link_buffer_capacity), mr().main};
@@ -432,8 +457,11 @@ auto combinatorial_kalman_filter_algorithm::operator()(
           copy()(link_n_surfaces_buffer, new_link_n_surfaces_buffer)->wait();
 
           // Replace old buffers with the new ones.
+=======
+>>>>>>> 632bbe908 (Performance optimizations)
           link_surfaces_buffer = std::move(new_link_surfaces_buffer);
-          link_n_surfaces_buffer = std::move(new_link_n_surfaces_buffer);
+          link_surface_ranges_buffer =
+              std::move(new_link_surface_ranges_buffer);
         }
       }
 
@@ -609,8 +637,9 @@ auto combinatorial_kalman_filter_algorithm::operator()(
              .tmp_jacobian_view = tmp_jacobian_buffer,
              .link_surfaces_ptr =
                  collect_surfaces ? link_surfaces_buffer.ptr() : nullptr,
-             .link_n_surfaces_view = link_n_surfaces_buffer,
-             .max_surfaces_per_step = max_surfaces_per_step});
+             .link_surface_ranges_view = link_surface_ranges_buffer,
+             .max_surfaces_per_step = max_surfaces_per_step,
+             .n_measurements = n_measurements});
 
         // Propagation must finish before this iteration releases param_ids.
         synchronize();
@@ -749,7 +778,17 @@ auto combinatorial_kalman_filter_algorithm::operator()(
       track_liveness_buffer = {n_tracks, mr().main};
       copy().memset(track_liveness_buffer, 0)->ignore();
 
-      prepare_smoothing_payload(n_tracks, track_indices_buffer,
+      // Upper bound of the sequence length per track: Every propagation step
+      // that leads to a measurement or an inner hole records at most
+      // 'max_surfaces_per_step' surfaces (the trailing holes are not added)
+      std::vector<unsigned int> seqs_sizes(n_tracks);
+      std::ranges::transform(
+          tips_length_host, seqs_sizes.begin(), [&](const unsigned int n_cands) {
+            return (n_cands + cfg.max_num_skipping_per_cand) *
+                   max_surfaces_per_step;
+          });
+
+      prepare_smoothing_payload(seqs_sizes, track_indices_buffer,
                                 track_liveness_buffer);
     }
 
@@ -771,7 +810,7 @@ auto combinatorial_kalman_filter_algorithm::operator()(
            .link_filtered_parameter_view = link_filtered_parameter_buffer,
            .link_surfaces_ptr =
                collect_surfaces ? link_surfaces_buffer.ptr() : nullptr,
-           .link_n_surfaces_view = link_n_surfaces_buffer,
+           .link_surface_ranges_view = link_surface_ranges_buffer,
            .max_surfaces_per_step = max_surfaces_per_step,
            .track_sort_keys_view = track_sort_keys_buffer,
            .track_indices_view = track_indices_buffer,

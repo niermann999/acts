@@ -15,6 +15,7 @@
 #include "traccc/definitions/qualifiers.hpp"
 #include "traccc/edm/track_parameters.hpp"
 #include "traccc/finding/candidate_link.hpp"
+#include "traccc/finding/device/link_surface_range.hpp"
 #include "traccc/finding/finding_config.hpp"
 
 // VecMem include(s).
@@ -80,14 +81,19 @@ struct propagate_to_next_surface_payload {
   void* link_surfaces_ptr = nullptr;
 
   /**
-   * @brief View object to the number of recorded surfaces per departure link
+   * @brief View object to the recorded surface range per departure link
    */
-  vecmem::data::vector_view<unsigned int> link_n_surfaces_view{};
+  vecmem::data::vector_view<link_surface_range> link_surface_ranges_view{};
 
   /**
    * @brief Maximum number of surfaces that can be recorded per link
    */
   unsigned int max_surfaces_per_step = 0u;
+
+  /**
+   * @brief Total number of measurements (to identify hole links)
+   */
+  unsigned int n_measurements = 0u;
 };
 
 /// Function for propagating the kalman-updated tracks to the next surface
@@ -105,6 +111,27 @@ struct propagate_to_next_surface_payload {
 ///
 template <typename propagator_t, typename bfield_t>
 TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
+    global_index_t globalIndex, const finding_config& cfg,
+    const typename propagator_t::detector_type* const det_data_ptr,
+    const bfield_t& field_data,
+    const propagate_to_next_surface_payload& payload);
+
+/// Function for propagating the kalman-updated tracks to the next surface,
+/// if the Kalman smoother runs after the track finding
+///
+/// Same as @c propagate_to_next_surface, but the descriptors of the surfaces
+/// that the track reaches are recorded per departure link (see
+/// @c link_surface_range). No Jacobians are accumulated.
+///
+/// @param[in] globalIndex        The index of the current thread
+/// @param[in] cfg                Track finding config object
+/// @param[in] det_data_ptr       Pointer to the tracking detector description
+/// @param[in] field_data         View object to the magnetic field
+/// @param[in,out] payload        The function call payload (the link surface
+///                               data must be set)
+///
+template <typename propagator_t, typename bfield_t>
+TRACCC_HOST_DEVICE inline void propagate_to_next_surface_kalman(
     global_index_t globalIndex, const finding_config& cfg,
     const typename propagator_t::detector_type* const det_data_ptr,
     const bfield_t& field_data,

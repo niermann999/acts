@@ -24,8 +24,18 @@
 
 namespace traccc::device {
 
-template <typename propagator_t, typename bfield_t>
-TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
+namespace details {
+
+/// Implementation of the propagation to the next surface for both smoother
+/// variants
+///
+/// @tparam propagator_t    The propagator type
+/// @tparam bfield_t        The magnetic field type
+/// @tparam kalman_smoother Record the surfaces for the Kalman smoother
+///                         (otherwise, accumulate the Jacobians if the MBF
+///                         smoother is configured)
+template <typename propagator_t, typename bfield_t, bool kalman_smoother>
+TRACCC_HOST_DEVICE inline void propagate_to_next_surface_impl(
     const global_index_t globalIndex, const finding_config& cfg,
     const typename propagator_t::detector_type* const det_data_ptr,
     const bfield_t& field_data,
@@ -99,14 +109,16 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
    * parameter transporter to multiply the Jacobians into this matrix, which
    * is set to the multiplicative identity.
    */
-  if (cfg.run_smoother == smoother_type::e_mbf) {
-    assert(payload.tmp_jacobian_view.ptr() != nullptr);
+  if constexpr (!kalman_smoother) {
+    if (cfg.run_smoother == smoother_type::e_mbf) {
+      assert(payload.tmp_jacobian_view.ptr() != nullptr);
 
-    vecmem::device_vector<bound_matrix<default_algebra>> tmp_jacobian(
-        payload.tmp_jacobian_view);
-    tmp_jacobian.at(param_id) =
-        matrix::identity<bound_matrix<default_algebra>>();
-    updater_state.set_full_jacobian(&(tmp_jacobian.at(param_id)));
+      vecmem::device_vector<bound_matrix<default_algebra>> tmp_jacobian(
+          payload.tmp_jacobian_view);
+      tmp_jacobian.at(param_id) =
+          matrix::identity<bound_matrix<default_algebra>>();
+      updater_state.set_full_jacobian(&(tmp_jacobian.at(param_id)));
+    }
   }
 
   /*
@@ -114,18 +126,27 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
    * the descriptors of all sensitive and material surfaces between the
    * departure surface (excluded) and the next sensitive surface (included).
    * They are stored per departure link and shared by all of its branches. At
-   * the first step, also the seed surface has to be added.
+   * the first step, also the seed surface has to be added, if it has a track
+   * state (i.e. the link is not a hole).
    */
   using surface_t = typename propagator_t::detector_type::surface_type;
-  if (payload.link_surfaces_ptr != nullptr) {
+  // Recomputed where needed, so that they are not live during the propagation
+  [[maybe_unused]] auto get_link_surfaces = [&payload, link_idx]() {
+    return static_cast<surface_t*>(payload.link_surfaces_ptr) +
+           link_idx * payload.max_surfaces_per_step;
+  };
+  [[maybe_unused]] auto is_seed_surface_recorded = [&payload, &link]() {
+    return (link.step == 0u) && (link.meas_idx < payload.n_measurements);
+  };
+
+  if constexpr (kalman_smoother) {
+    assert(payload.link_surfaces_ptr != nullptr);
     assert(payload.max_surfaces_per_step > 0u);
 
-    updater_state.set_surface_sequence(
-        static_cast<surface_t*>(payload.link_surfaces_ptr) +
-            link_idx * payload.max_surfaces_per_step,
-        payload.max_surfaces_per_step);
+    updater_state.set_surface_sequence(get_link_surfaces(),
+                                       payload.max_surfaces_per_step);
 
-    if (link.step == 0u) {
+    if (is_seed_surface_recorded()) {
       updater_state.template record_surface<surface_t>(
           det_data_ptr->surface(in_par.surface_link()));
     }
@@ -173,11 +194,7 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
     params_liveness[param_id] = 0u;
   }
 
-  if (payload.link_surfaces_ptr != nullptr) {
-    vecmem::device_vector<unsigned int> link_n_surfaces(
-        payload.link_n_surfaces_view);
-    link_n_surfaces.at(link_idx) = updater_state.n_recorded_surfaces();
-
+  if constexpr (kalman_smoother) {
     // Do not continue tracks with an incomplete surface sequence
     if (updater_state.surface_sequence_overflow()) {
       TRACCC_WARNING_DEVICE(
@@ -185,6 +202,43 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
           updater_state.n_recorded_surfaces(), payload.max_surfaces_per_step);
       params_liveness[param_id] = 0u;
     }
+
+    link_surface_range range{};
+
+    // The range is only used if the track continues: Remove the sensitive
+    // surfaces without a track state once per link (i.e. the ones that the
+    // CKF aborter passed without a measurement search). Only the seed surface
+    // and the destination surface (last entry) keep their sensitive surface.
+    if (params_liveness[param_id] != 0u) {
+      surface_t* const link_surfaces = get_link_surfaces();
+      const unsigned int n_recorded = updater_state.n_recorded_surfaces();
+      const unsigned int first = is_seed_surface_recorded() ? 1u : 0u;
+      assert(n_recorded > first);
+
+      unsigned int n_kept = first;
+      for (unsigned int i = first; i < n_recorded - 1u; ++i) {
+        if (!link_surfaces[i].is_sensitive()) {
+          link_surfaces[n_kept++] = link_surfaces[i];
+        }
+      }
+      link_surfaces[n_kept++] = link_surfaces[n_recorded - 1u];
+      range.n_surfaces = n_kept;
+    }
+
+    // The surfaces of this link follow the surfaces of the previous link.
+    // If this link is a hole, its sensitive surface (last entry of the
+    // previous range) is left out
+    vecmem::device_vector<link_surface_range> link_surface_ranges(
+        payload.link_surface_ranges_view);
+    if (link.step != 0u) {
+      const link_surface_range prev_range =
+          link_surface_ranges.at(link.previous_candidate_idx);
+      const unsigned int is_hole =
+          (link.meas_idx >= payload.n_measurements) ? 1u : 0u;
+      assert(prev_range.n_surfaces >= is_hole);
+      range.offset = prev_range.offset + prev_range.n_surfaces - is_hole;
+    }
+    link_surface_ranges.at(link_idx) = range;
   }
 
   if (params_liveness[param_id] == 0 &&
@@ -193,6 +247,28 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
     auto tip_pos = tips.push_back(link_idx);
     tip_lengths.at(tip_pos) = n_cands;
   }
+}
+
+}  // namespace details
+
+template <typename propagator_t, typename bfield_t>
+TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
+    const global_index_t globalIndex, const finding_config& cfg,
+    const typename propagator_t::detector_type* const det_data_ptr,
+    const bfield_t& field_data,
+    const propagate_to_next_surface_payload& payload) {
+  details::propagate_to_next_surface_impl<propagator_t, bfield_t, false>(
+      globalIndex, cfg, det_data_ptr, field_data, payload);
+}
+
+template <typename propagator_t, typename bfield_t>
+TRACCC_HOST_DEVICE inline void propagate_to_next_surface_kalman(
+    const global_index_t globalIndex, const finding_config& cfg,
+    const typename propagator_t::detector_type* const det_data_ptr,
+    const bfield_t& field_data,
+    const propagate_to_next_surface_payload& payload) {
+  details::propagate_to_next_surface_impl<propagator_t, bfield_t, true>(
+      globalIndex, cfg, det_data_ptr, field_data, payload);
 }
 
 }  // namespace traccc::device
