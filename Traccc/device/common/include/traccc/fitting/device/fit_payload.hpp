@@ -57,6 +57,15 @@ struct fit_tpayload {
    * @brief View object to the output geometry identifier sequence
    */
   vecmem::data::jagged_vector_view<surface_t> surfaces;
+
+  /**
+   * @brief Type-erased pointer to a device detector object in global memory
+   * (the device detector type that belongs to @c detector_view_t)
+   *
+   * If it is set, the fitting kernels use this detector object instead of
+   * constructing one per thread from @c det.
+   */
+  const void* det_ptr = nullptr;
 };
 
 }  // namespace traccc::device

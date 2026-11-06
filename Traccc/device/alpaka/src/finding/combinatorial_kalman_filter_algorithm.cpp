@@ -186,6 +186,23 @@ struct propagate_to_next_surface {
 };
 
 /// Alpaka kernel functor for
+/// @c traccc::device::propagate_to_next_surface_kalman
+template <typename propagator_t, typename bfield_t>
+struct propagate_to_next_surface_kalman {
+  template <typename TAcc>
+  ALPAKA_FN_ACC void operator()(
+      TAcc const& acc, const finding_config& cfg,
+      const typename propagator_t::detector_type* det_data_ptr,
+      const bfield_t& field_data,
+      const device::propagate_to_next_surface_payload& payload) const {
+    device::global_index_t globalThreadIdx =
+        ::alpaka::getIdx<::alpaka::Grid, ::alpaka::Threads>(acc)[0];
+    device::propagate_to_next_surface_kalman<propagator_t, bfield_t>(
+        globalThreadIdx, cfg, det_data_ptr, field_data, payload);
+  }
+};
+
+/// Alpaka kernel functor for
 /// @c traccc::device::fill_finding_propagation_sort_keys
 struct gather_best_tips_per_measurement {
   template <typename TAcc>
@@ -493,16 +510,26 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
                 device_detector
                     .as<vecmem::data::vector_buffer<detector_device_t>>();
 
+        using propagator_t =
+            traccc::details::ckf_propagator_t<detector_device_t, bfield_view_t>;
+
         // Launch the kernel to propagate all active tracks to the next
-        // surface.
-        ::alpaka::exec<Acc>(
-            details::get_queue(queue()),
-            makeWorkDiv<Acc>(deviceBlocks, deviceThreads),
-            kernels::propagate_to_next_surface<
-                traccc::details::ckf_propagator_t<detector_device_t,
-                                                  bfield_view_t>,
-                bfield_view_t>{},
-            config, device_detector_buffer.ptr(), bfield, payload);
+        // surface. Only the Kalman smoother needs the surfaces of the
+        // propagation.
+        if (config.run_smoother == smoother_type::e_kalman) {
+          ::alpaka::exec<Acc>(
+              details::get_queue(queue()),
+              makeWorkDiv<Acc>(deviceBlocks, deviceThreads),
+              kernels::propagate_to_next_surface_kalman<propagator_t,
+                                                        bfield_view_t>{},
+              config, device_detector_buffer.ptr(), bfield, payload);
+        } else {
+          ::alpaka::exec<Acc>(
+              details::get_queue(queue()),
+              makeWorkDiv<Acc>(deviceBlocks, deviceThreads),
+              kernels::propagate_to_next_surface<propagator_t, bfield_view_t>{},
+              config, device_detector_buffer.ptr(), bfield, payload);
+        }
       });
 }
 

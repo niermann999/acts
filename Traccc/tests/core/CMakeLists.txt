@@ -19,6 +19,7 @@ traccc_add_test(core
    "test_serializer.cpp"
    "test_simulation.cpp"
    "test_subspace.cpp"
+   "test_two_filters_smoother.cpp"
    "particle.cpp"
    LINK_LIBRARIES GTest::gtest_main vecmem::core traccc_tests_common
    traccc::core traccc::io traccc::performance traccc::simulation

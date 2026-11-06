@@ -172,6 +172,9 @@ int throughput_mt(std::string_view description, int argc, char* argv[],
       fitting_opts);
   fitting_cfg.propagation = propagation_config;
 
+  // The Kalman smoother of the track finding uses the track fitting options
+  finding_cfg.kalman_smoother = fitting_cfg;
+
   // Determine the await strategy to use.
   await_strategy await_mode = await_strategy::sync_event;
   if (threading_opts.await_mode == opts::threading::await_strategy::callback) {

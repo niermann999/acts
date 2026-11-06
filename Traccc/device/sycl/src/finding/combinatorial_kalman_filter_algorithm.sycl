@@ -70,6 +70,9 @@ struct progressive_kalman_filter {};
 template <detray::concepts::detector detector_t, typename bfield_t>
 struct propagate_to_next_surface {};
 
+template <detray::concepts::detector detector_t, typename bfield_t>
+struct propagate_to_next_surface_kalman {};
+
 template <detray::concepts::detector detector_t>
 struct create_device_detector {};
 
@@ -372,22 +375,42 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
                 device_detector
                     .as<vecmem::data::vector_buffer<detector_device_t>>();
 
+        using propagator_t =
+            traccc::details::ckf_propagator_t<detector_device_t, bfield_view_t>;
+        using detector_tag_t = detector_tag_selector_t<detector_t>;
+        using bfield_tag_t =
+            bfield_tag_selector_t<typename bfield_view_t::backend_t>;
+
         // Launch the kernel to propagate all active tracks to the next
-        // surface.
-        squeue.submit([&](::sycl::handler& h) {
-          h.parallel_for<kernels::propagate_to_next_surface<
-              detector_tag_selector_t<detector_t>,
-              bfield_tag_selector_t<typename bfield_view_t::backend_t>>>(
-              details::calculate1DimNdRange(n_threads, warp_size() * 4),
-              [config, det = device_detector_buffer.ptr(), bfield,
-               payload](::sycl::nd_item<1> item) {
-                device::propagate_to_next_surface<
-                    traccc::details::ckf_propagator_t<detector_device_t,
-                                                      bfield_view_t>,
-                    bfield_view_t>(details::global_index(item), config, det,
-                                   bfield, payload);
-              });
-        });
+        // surface. Only the Kalman smoother needs the surfaces of the
+        // propagation.
+        if (config.run_smoother == smoother_type::e_kalman) {
+          squeue.submit([&](::sycl::handler& h) {
+            h.parallel_for<kernels::propagate_to_next_surface_kalman<
+                detector_tag_t, bfield_tag_t>>(
+                details::calculate1DimNdRange(n_threads, warp_size() * 4),
+                [config, det = device_detector_buffer.ptr(), bfield,
+                 payload](::sycl::nd_item<1> item) {
+                  device::propagate_to_next_surface_kalman<propagator_t,
+                                                           bfield_view_t>(
+                      details::global_index(item), config, det, bfield,
+                      payload);
+                });
+          });
+        } else {
+          squeue.submit([&](::sycl::handler& h) {
+            h.parallel_for<kernels::propagate_to_next_surface<detector_tag_t,
+                                                              bfield_tag_t>>(
+                details::calculate1DimNdRange(n_threads, warp_size() * 4),
+                [config, det = device_detector_buffer.ptr(), bfield,
+                 payload](::sycl::nd_item<1> item) {
+                  device::propagate_to_next_surface<propagator_t,
+                                                    bfield_view_t>(
+                      details::global_index(item), config, det, bfield,
+                      payload);
+                });
+          });
+        }
       });
 }
 

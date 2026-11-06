@@ -16,15 +16,22 @@
 namespace traccc::device {
 
 /// Function performing a forward fit iteration
+///
+/// @tparam fitter_t The Kalman fitter type
+///
+/// @param globalIndex The index of the current thread
+/// @param cfg         The fitting configuration (must outlive the call)
+/// @param payload     The (non-templated) fitting payload
+/// @param tpayload    The (templated) fitting payload
+/// @param det         The device detector object (e.g. in global memory)
 template <typename fitter_t>
 TRACCC_HOST_DEVICE inline void fit_forward(
     const global_index_t globalIndex, const typename fitter_t::config_type& cfg,
     const fit_payload& payload,
     const fit_tpayload<typename fitter_t::detector_type::const_view_type,
                        typename fitter_t::bfield_type,
-                       typename fitter_t::surface_type>& tpayload) {
-  typename fitter_t::detector_type det(tpayload.det);
-
+                       typename fitter_t::surface_type>& tpayload,
+    const typename fitter_t::detector_type& det) {
   vecmem::device_vector<const unsigned int> param_ids(payload.track_indices);
   vecmem::device_vector<unsigned int> param_liveness(payload.track_liveness);
   typename edm::track_container<
@@ -58,5 +65,27 @@ TRACCC_HOST_DEVICE inline void fit_forward(
   if (fit_status != kalman_fitter_status::SUCCESS) {
     param_liveness.at(param_id) = 0u;
   }
+}
+
+/// Function performing a forward fit iteration
+///
+/// Builds the device detector object from the view in the payload (in every
+/// thread). Prefer the overload with an external detector object.
+///
+/// @tparam fitter_t The Kalman fitter type
+///
+/// @param globalIndex The index of the current thread
+/// @param cfg         The fitting configuration (must outlive the call)
+/// @param payload     The (non-templated) fitting payload
+/// @param tpayload    The (templated) fitting payload
+template <typename fitter_t>
+TRACCC_HOST_DEVICE inline void fit_forward(
+    const global_index_t globalIndex, const typename fitter_t::config_type& cfg,
+    const fit_payload& payload,
+    const fit_tpayload<typename fitter_t::detector_type::const_view_type,
+                       typename fitter_t::bfield_type,
+                       typename fitter_t::surface_type>& tpayload) {
+  const typename fitter_t::detector_type det(tpayload.det);
+  fit_forward<fitter_t>(globalIndex, cfg, payload, tpayload, det);
 }
 }  // namespace traccc::device

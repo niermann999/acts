@@ -32,15 +32,16 @@ template <typename detector_list_t, typename bfield_list_t>
 auto kalman_fitting_algorithm::prepare_fit_payload_helper(
     const detector_buffer& det, const magnetic_field& field,
     const std::vector<unsigned int>& n_surfaces,
-    const device::fit_payload& payload) const -> fit_payload {
+    const device::fit_payload& payload, move_only_any device_detector) const
+    -> fit_payload {
   return detector_buffer_magnetic_field_visitor<detector_list_t, bfield_list_t>(
       det, field,
       [&]<detray::concepts::detector detector_t, typename bfield_view_t>(
           const detray::detector_view_t<detector_t>& detector,
           const bfield_view_t& bfield) -> fit_payload {
         using detector_view_t = detray::detector_view_t<detector_t>;
-        using surface_t =
-            typename detray::detector_device_t<detector_t>::surface_type;
+        using detector_device_t = detray::detector_device_t<detector_t>;
+        using surface_t = typename detector_device_t::surface_type;
 
         // Create the surface buffer used during the fitting.
         vecmem::data::jagged_vector_buffer<surface_t> surfaces{
@@ -52,6 +53,14 @@ auto kalman_fitting_algorithm::prepare_fit_payload_helper(
         device::fit_tpayload<detector_view_t, bfield_view_t, surface_t>
             host_tpayload{
                 .det = detector, .field = bfield, .surfaces = surfaces};
+
+        // Use the device detector object in global memory, if available
+        if (device_detector.has_value()) {
+          host_tpayload.det_ptr =
+              device_detector
+                  .as<vecmem::data::vector_buffer<detector_device_t>>()
+                  .ptr();
+        }
 
         // Create the (templated) device payload buffer, and copy the host
         // payload into it.
@@ -73,6 +82,7 @@ auto kalman_fitting_algorithm::prepare_fit_payload_helper(
 
         // Save all the type erased payloads into it.
         result.surfaces.set(std::move(surfaces));
+        result.device_detector = std::move(device_detector);
         result.host_tpayload = host_tpayload;
         result.device_tpayload.set(std::move(device_tpayload));
 

@@ -16,8 +16,10 @@
 #define TRACCC_ASSUME(...)
 #endif
 
-#if defined(__CUDACC__) || defined(__HIP__) || defined(__OPENMP) || \
-    defined(__SYCL__) || defined(__clang__)
+// Only in the device compilation passes (and for clang): The host compiler of
+// e.g. nvcc (GCC) does not know the pragma and warns about it
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__) || \
+    defined(__SYCL_DEVICE_ONLY__) || defined(__OPENMP) || defined(__clang__)
 #define TRACCC_PRAGMA_UNROLL _Pragma("unroll")
 #else
 #define TRACCC_PRAGMA_UNROLL

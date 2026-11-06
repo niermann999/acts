@@ -143,6 +143,7 @@ auto combinatorial_kalman_filter_algorithm::operator()(
 
         // Save all the type erased payloads into it.
         smoothing_payload.surfaces = std::move(tmp.surfaces);
+        smoothing_payload.device_detector = std::move(tmp.device_detector);
         smoothing_payload.host_tpayload = tmp.host_tpayload;
         smoothing_payload.device_tpayload = std::move(tmp.device_tpayload);
       };

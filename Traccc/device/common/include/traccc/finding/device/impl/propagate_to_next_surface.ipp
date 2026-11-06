@@ -145,6 +145,9 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface_impl(
   if constexpr (kalman_smoother) {
     assert(payload.link_surfaces_ptr != nullptr);
     assert(payload.max_surfaces_per_step > 0u);
+    // The Kalman smoother does not need the Jacobians of the MBF smoother
+    assert(payload.tmp_jacobian_view.ptr() == nullptr);
+    assert(!updater_state.has_full_jacobian());
 
     updater_state.set_surface_sequence(get_link_surfaces(),
                                        payload.max_surfaces_per_step);

@@ -146,6 +146,21 @@ class full_chain_algorithm
       const edm::silicon_cell_collection::host& cells) const;
 
  private:
+  /// Create the Kalman fitting algorithm that the track finding uses as
+  /// smoother
+  ///
+  /// @note Uses the memory resources, copy object and stream/queue members,
+  ///       so it must only be called after they are initialized
+  ///
+  /// @param finding_config The track finding configuration
+  /// @param logger The logger of the full chain algorithm
+  ///
+  /// @returns the smoother algorithm, or @c nullptr if the track finding does
+  ///          not run the Kalman smoother
+  std::unique_ptr<fitting_algorithm> make_finding_smoother(
+      const finding_algorithm::config_type& finding_config,
+      const traccc::Logger& logger);
+
   /// Private data object
   std::unique_ptr<details::full_chain_algorithm_data> m_data;
   /// Host memory resource

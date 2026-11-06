@@ -16,6 +16,7 @@
 
 // System include(s).
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 
 namespace traccc::alpaka {
@@ -128,7 +129,8 @@ full_chain_algorithm::full_chain_algorithm(
           logger->cloneWithSuffix("TrackParamEstAlg"), m_await_function),
       m_finding(finding_config, {m_cached_device_mr, &m_cached_pinned_host_mr},
                 m_vecmem_objects.async_copy(), m_queue,
-                logger->cloneWithSuffix("TrackFindingAlg"), nullptr,
+                logger->cloneWithSuffix("TrackFindingAlg"),
+                make_finding_smoother(finding_config, *logger),
                 m_await_function),
       m_fitting(fitting_config, {m_cached_device_mr, &m_cached_pinned_host_mr},
                 m_vecmem_objects.async_copy(), m_queue,
@@ -143,6 +145,20 @@ full_chain_algorithm::full_chain_algorithm(
 }
 
 full_chain_algorithm::~full_chain_algorithm() = default;
+
+std::unique_ptr<full_chain_algorithm::fitting_algorithm>
+full_chain_algorithm::make_finding_smoother(
+    const finding_algorithm::config_type& finding_config,
+    const traccc::Logger& logger) {
+  if (finding_config.run_smoother != smoother_type::e_kalman) {
+    return nullptr;
+  }
+  return std::make_unique<fitting_algorithm>(
+      finding_config.kalman_smoother,
+      traccc::memory_resource{m_cached_device_mr, &m_cached_pinned_host_mr},
+      m_vecmem_objects.async_copy(), m_queue,
+      logger.cloneWithSuffix("TrackFindingSmootherAlg"), m_await_function);
+}
 
 full_chain_algorithm::output_type full_chain_algorithm::operator()(
     const edm::silicon_cell_collection::host& cells) const {

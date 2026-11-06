@@ -41,6 +41,7 @@ enum class kalman_actor_direction {
 
 template <typename algebra_t, typename surface_t>
 struct kalman_actor_state {
+  using scalar_type = detray::dscalar<algebra_t>;
   using sequencer_t =
       typename detray::actor::surface_sequencer<surface_t>::state;
 
@@ -96,6 +97,39 @@ struct kalman_actor_state {
   void reset() {
     m_idx = 0;
     n_holes = 0u;
+    smoothed_ndf = 0.f;
+    smoothed_chi2 = 0.f;
+    first_smoothed_idx = -1;
+  }
+
+  /// Add a smoothed track state to the fit statistics
+  ///
+  /// @param state_idx position of the track state along the track
+  /// @param meas_dim  dimension of the measurement of the track state
+  /// @param chi2      backward chi2 of the track state
+  TRACCC_HOST_DEVICE
+  void add_smoothed_state(const int state_idx, const unsigned int meas_dim,
+                          const scalar_type chi2) {
+    smoothed_ndf += static_cast<scalar_type>(meas_dim);
+    smoothed_chi2 += chi2;
+    // The smoother runs from the back to the front of the track
+    first_smoothed_idx = state_idx;
+  }
+
+  /// @TODO: Const-correctness broken due to a vecmem bug
+  /// @note Only valid after the backward pass of the smoother
+  /// @returns true if the smoother reached all track states (except holes)
+  TRACCC_HOST_DEVICE
+  bool all_smoothed() /*const*/ {
+    // The smoother runs from the back to the front of the track: The states
+    // that it did not reach are at the front of the track
+    const int n_not_reached{static_cast<int>(size()) - m_idx};
+    for (int i = 0; i < n_not_reached; ++i) {
+      if (!at(static_cast<unsigned int>(i)).is_hole()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Advance the next track state
@@ -319,6 +353,13 @@ struct kalman_actor_state {
   /// have a measurement for the track pattern)
   unsigned int n_holes{0u};
 
+  /// Sum of the measurement dimensions of the smoothed track states
+  scalar_type smoothed_ndf{0.f};
+  /// Sum of the backward chi2 of the smoothed track states
+  scalar_type smoothed_chi2{0.f};
+  /// Position of the first smoothed track state along the track (-1: none)
+  int first_smoothed_idx{-1};
+
   /// Result of the fitter pass
   kalman_fitter_status fit_result = kalman_fitter_status::SUCCESS;
 
@@ -485,6 +526,14 @@ struct kalman_actor : detray::base_actor {
             actor_state.fit_result = two_filters_smoother<algebra_t>{}(
                 trk_state, measurement, bound_param, actor_state.m_calib_cfg,
                 is_line);
+
+            // Update the fit statistics, while the data is at hand
+            if (actor_state.fit_result == kalman_fitter_status::SUCCESS &&
+                !trk_state.is_hole()) {
+              actor_state.add_smoothed_state(
+                  static_cast<int>(actor_state.size()) - 1 - actor_state.m_idx,
+                  measurement.dimensions(), trk_state.backward_chi2());
+            }
           }
         } else {
           assert(false);

@@ -15,10 +15,12 @@
 #include "traccc/edm/measurement_helpers.hpp"
 #include "traccc/edm/track_state_collection.hpp"
 #include "traccc/finding/measurement_selector.hpp"
+#include "traccc/fitting/details/cholesky_solve.hpp"
 #include "traccc/fitting/details/regularize_covariance.hpp"
 #include "traccc/fitting/status_codes.hpp"
 #include "traccc/utils/logging.hpp"
 #include "traccc/utils/matrix_helpers.hpp"
+#include "traccc/utils/trigonometric_helpers.hpp"
 
 namespace traccc {
 
@@ -70,19 +72,34 @@ struct two_filters_smoother {
     const matrix_type<e_bound_size, e_bound_size>& predicted_cov =
         bound_params.covariance();
 
-    const matrix_type<e_bound_size, e_bound_size> predicted_cov_inv =
-        matrix::inverse(predicted_cov);
-    const matrix_type<e_bound_size, e_bound_size> filtered_cov_inv =
-        matrix::inverse(trk_state.filtered_params().covariance());
+    // Forward filtered track parameters and covariance
+    const matrix_type<e_bound_size, 1> fw_vec =
+        trk_state.filtered_params().vector();
+    const matrix_type<e_bound_size, e_bound_size> fw_cov =
+        trk_state.filtered_params().covariance();
 
-    // Eq (3.38) of "Pattern Recognition, Tracking and Vertex
-    // Reconstruction in Particle Detectors"
-    const matrix_type<e_bound_size, e_bound_size> smoothed_cov_inv =
-        predicted_cov_inv + filtered_cov_inv;
+    // Combine the forward filtered and the backward predicted parameters,
+    // Eq (3.38) of "Pattern Recognition, Tracking and Vertex Reconstruction
+    // in Particle Detectors", in the equivalent gain form:
+    //   C_s = (C_f^-1 + C_p^-1)^-1             = C_f - K C_f
+    //   x_s = C_s (C_f^-1 x_f + C_p^-1 x_p)    = x_f + K (x_p - x_f)
+    //   with K = C_f (C_f + C_p)^-1
+    // This needs only one solve of a symmetric positive definite system
+    // instead of three general matrix inversions.
 
-    assert(matrix::determinant(smoothed_cov_inv) != 0.f);
+    // Solve (C_f + C_p) K^T = C_f (both covariances are symmetric)
+    matrix_type<e_bound_size, e_bound_size> gain_t = fw_cov;
+    if (!details::cholesky_solve<algebra_t, e_bound_size, e_bound_size>(
+            fw_cov + predicted_cov, gain_t)) {
+      TRACCC_ERROR_HOST_DEVICE(
+          "Sum of covariances not positive definite (Matrix inversion)");
+      return kalman_fitter_status::ERROR_INVERSION;
+    }
+    const matrix_type<e_bound_size, e_bound_size> gain =
+        matrix::transpose(gain_t);
+
     matrix_type<e_bound_size, e_bound_size> smoothed_cov =
-        matrix::inverse(smoothed_cov_inv);
+        fw_cov - gain * fw_cov;
 
     // Check the covariance for consistency
     // @TODO: Need to understand why negative variance happens
@@ -92,12 +109,14 @@ struct two_filters_smoother {
       return kalman_fitter_status::ERROR_SMOOTHER_INVALID_COVARIANCE;
     }
 
-    // Eq (3.38) of "Pattern Recognition, Tracking and Vertex
-    // Reconstruction in Particle Detectors"
-    matrix_type<e_bound_size, 1u> smoothed_vec =
-        smoothed_cov *
-        (filtered_cov_inv * trk_state.filtered_params().vector() +
-         predicted_cov_inv * predicted_vec);
+    // Difference between the predicted and the filtered parameters: phi is
+    // periodic, so the difference is wrapped into [-pi, pi)
+    matrix_type<e_bound_size, 1u> delta = predicted_vec - fw_vec;
+    getter::element(delta, e_bound_phi, 0) =
+        detail::wrap_phi(getter::element(delta, e_bound_phi, 0));
+
+    // Eq (3.38) in gain form (see above)
+    matrix_type<e_bound_size, 1u> smoothed_vec = fw_vec + gain * delta;
 
     // Return false if track is parallel to z-axis or phi is not finite
     if (!std::isfinite(getter::element(smoothed_vec, e_bound_theta, 0))) {

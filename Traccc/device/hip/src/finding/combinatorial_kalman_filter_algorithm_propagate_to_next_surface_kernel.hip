@@ -38,6 +38,17 @@ __global__ __launch_bounds__(128) void propagate_to_next_surface(
       details::global_index1(), cfg, det_data_ptr, field_data, payload);
 }
 
+/// HIP kernel for running @c traccc::device::propagate_to_next_surface_kalman
+template <typename propagator_t, typename bfield_t>
+__global__ __launch_bounds__(128) void propagate_to_next_surface_kalman(
+    const finding_config cfg,
+    const typename propagator_t::detector_type* const det_data_ptr,
+    const bfield_t field_data,
+    const device::propagate_to_next_surface_payload payload) {
+  device::propagate_to_next_surface_kalman<propagator_t>(
+      details::global_index1(), cfg, det_data_ptr, field_data, payload);
+}
+
 }  // namespace kernels
 
 void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
@@ -68,8 +79,13 @@ void combinatorial_kalman_filter_algorithm::propagate_to_next_surface_kernel(
 
         // The kernel name carries a top level comma, which the launch macro
         // can not take, so it is passed through a function pointer.
+        // Only the Kalman smoother needs the surfaces of the propagation.
         const auto kernel =
-            &kernels::propagate_to_next_surface<propagator_t, bfield_view_t>;
+            (config.run_smoother == smoother_type::e_kalman)
+                ? &kernels::propagate_to_next_surface_kalman<propagator_t,
+                                                             bfield_view_t>
+                : &kernels::propagate_to_next_surface<propagator_t,
+                                                      bfield_view_t>;
         hipLaunchKernelGGL(kernel, deviceBlocks, deviceThreads, 0,
                            details::get_stream(stream()), config,
                            device_detector_buffer.ptr(), bfield, payload);

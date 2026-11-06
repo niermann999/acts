@@ -9,6 +9,8 @@
 // Local include(s).
 #include "traccc/cuda/fitting/kalman_fitting_algorithm.hpp"
 
+#include "../finding/kernels/create_device_detector.cuh"
+#include "../utils/cuda_error_handling.hpp"
 #include "../utils/magnetic_field_types.hpp"
 #include "../utils/utils.hpp"
 #include "./kernels/fit_backward.hpp"
@@ -18,7 +20,14 @@
 // Project include(s).
 #include "traccc/fitting/details/kalman_fitting_types.hpp"
 #include "traccc/geometry/detector.hpp"
+#include "traccc/geometry/detector_buffer.hpp"
 #include "traccc/utils/detector_buffer_bfield_visitor.hpp"
+
+// VecMem include(s).
+#include <vecmem/containers/data/vector_buffer.hpp>
+
+// System include(s).
+#include <type_traits>
 
 namespace traccc::cuda {
 
@@ -50,9 +59,30 @@ auto kalman_fitting_algorithm::prepare_fit_payload(
     const detector_buffer& det, const magnetic_field& field,
     const std::vector<unsigned int>& n_surfaces,
     const device::fit_payload& payload) const -> fit_payload {
+  // Build the device detector object once in global memory, so that the
+  // fitting kernels only carry a pointer to it
+  move_only_any device_detector = detector_buffer_visitor<detector_type_list>(
+      det, [&]<detray::concepts::detector detector_t>(
+               const detray::detector_view_t<detector_t>& det_view) {
+        using detector_device_t = detray::detector_device_t<detector_t>;
+
+        static_assert(
+            std::is_trivially_destructible_v<detector_device_t>,
+            "the detector is placement-constructed and never destroyed, so it "
+            "must not need a destructor");
+
+        vecmem::data::vector_buffer<detector_device_t> device_detector_buffer(
+            1, mr().main);
+        traccc::cuda::create_device_detector<detector_device_t>(
+            details::get_stream(stream()), det_view,
+            device_detector_buffer.ptr());
+        TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
+        return move_only_any{std::move(device_detector_buffer)};
+      });
+
   return prepare_fit_payload_helper<detector_type_list,
                                     cuda::bfield_type_list<scalar>>(
-      det, field, n_surfaces, payload);
+      det, field, n_surfaces, payload, std::move(device_detector));
 }
 
 void kalman_fitting_algorithm::fit_forward_kernel(
@@ -92,8 +122,9 @@ void kalman_fitting_algorithm::fit_backward_kernel(
         const unsigned int n_tracks = payload.payload.tracks.tracks.capacity();
         assert(n_tracks == copy().get_size(payload.payload.tracks.tracks));
 
-        // Launch parameters for the kernel.
-        const unsigned int nThreads = warp_size() * 4;
+        // Launch parameters for the kernel: Smaller blocks spread the
+        // (register heavy) backward fit over more SMs
+        const unsigned int nThreads = warp_size() * 2;
         const unsigned int nBlocks = (n_tracks + nThreads - 1) / nThreads;
 
         // Fitter type to use.

@@ -15,18 +15,27 @@
 // Project include(s).
 #include "traccc/fitting/device/fit_forward.hpp"
 
+// System include(s).
+#include <cassert>
+
 namespace traccc::cuda {
 namespace kernels {
 
 template <typename fitter_t>
 __global__ __launch_bounds__(128) void fit_forward(
-    const fitting_config cfg, const device::fit_payload payload,
+    const __grid_constant__ fitting_config cfg,
+    const __grid_constant__ device::fit_payload payload,
     const device::fit_tpayload<
         typename fitter_t::detector_type::const_view_type,
         typename fitter_t::bfield_type, typename fitter_t::surface_type>*
         tpayload) {
+  // The device detector object is built once in global memory
+  assert(tpayload->det_ptr != nullptr);
+  const auto* __restrict__ const det_ptr =
+      static_cast<const typename fitter_t::detector_type*>(tpayload->det_ptr);
+
   device::fit_forward<fitter_t>(details::global_index1(), cfg, payload,
-                                *tpayload);
+                                *tpayload, *det_ptr);
 }
 
 }  // namespace kernels

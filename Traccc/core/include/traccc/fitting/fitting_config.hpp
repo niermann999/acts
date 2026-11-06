@@ -38,7 +38,7 @@ struct fitting_config {
 
   /// Smoothing with backward filter
   traccc::scalar covariance_inflation_factor = 1e3f;
-  unsigned int surface_sequence_size_factor = 5u;
+  unsigned int surface_sequence_size_factor = 8u;
   unsigned int min_surface_sequence_capacity = 100u;
   bool do_precise_hole_count = false;
 };

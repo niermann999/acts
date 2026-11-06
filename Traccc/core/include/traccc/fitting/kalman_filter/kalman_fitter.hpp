@@ -19,7 +19,6 @@
 #include "traccc/fitting/fitting_config.hpp"
 #include "traccc/fitting/kalman_filter/kalman_actor.hpp"
 #include "traccc/fitting/kalman_filter/kalman_step_aborter.hpp"
-#include "traccc/fitting/kalman_filter/statistics_updater.hpp"
 #include "traccc/fitting/kalman_filter/two_filters_smoother.hpp"
 #include "traccc/fitting/status_codes.hpp"
 #include "traccc/utils/logging.hpp"
@@ -99,7 +98,12 @@ class kalman_fitter {
 
   /// Constructor with a detector
   ///
+  /// @note The fitter keeps references to the detector and the configuration,
+  ///       so both must outlive the fitter.
+  ///
   /// @param det the detector object
+  /// @param field the magnetic field view
+  /// @param cfg the fitting configuration
   TRACCC_HOST_DEVICE
   kalman_fitter(const detector_type& det, const bfield_type& field,
                 const config_type& cfg)
@@ -413,16 +417,20 @@ class kalman_fitter {
     return kalman_fitter_status::SUCCESS;
   }
 
+  /// Write the fit statistics of the smoother into the track
+  ///
+  /// The statistics are accumulated by the Kalman actor during the smoothing,
+  /// so the track states do not have to be read again.
+  ///
+  /// @param fitter_state the state of kalman fitter
   TRACCC_HOST_DEVICE
   void update_statistics(state& fitter_state) const {
     typename edm::track_collection<algebra_type>::device::proxy_type& fit_res =
         fitter_state.m_fit_res;
-    typename edm::track_state_collection<algebra_type>::device& track_states =
-        fitter_state.m_fit_actor_state.m_track_states;
+    auto& actor_state = fitter_state.m_fit_actor_state;
 
     // Only count statistics for fully fitted tracks
-    if (fitter_state.m_fit_actor_state.fit_result !=
-        kalman_fitter_status::SUCCESS) {
+    if (actor_state.fit_result != kalman_fitter_status::SUCCESS) {
       return;
     }
 
@@ -430,26 +438,15 @@ class kalman_fitter {
 
     // Fit parameter = smoothed track parameter of the first smoothed track
     // state
-    for (const edm::track_constituent_link& link :
-         fit_res.constituent_links()) {
-      assert(link.type == edm::track_constituent_link::track_state);
-      if (track_states.at(link.index).is_smoothed()) {
-        fit_res.params() = track_states.at(link.index).smoothed_params();
-        break;
-      }
+    if (actor_state.first_smoothed_idx >= 0) {
+      fit_res.params() =
+          actor_state
+              .at(static_cast<unsigned int>(actor_state.first_smoothed_idx))
+              .smoothed_params();
     }
 
-    for (const edm::track_constituent_link& link :
-         fit_res.constituent_links()) {
-      assert(link.type == edm::track_constituent_link::track_state);
-      edm::track_state trk_state = track_states.at(link.index);
-      const detray::tracking_surface sf{
-          m_detector, fitter_state.m_fit_actor_state.m_measurements
-                          .at(trk_state.measurement_index())
-                          .surface_link()};
-      statistics_updater<algebra_type>{}(
-          fit_res, trk_state, fitter_state.m_fit_actor_state.m_measurements);
-    }
+    fit_res.ndf() += actor_state.smoothed_ndf;
+    fit_res.chi2() += actor_state.smoothed_chi2;
 
     // Subtract the NDoF with the degree of freedom of the bound track (=5)
     fit_res.ndf() -= 5.f;
@@ -465,8 +462,6 @@ class kalman_fitter {
                             const kalman_fitter_status res_bw) const {
     typename edm::track_collection<algebra_type>::device::proxy_type& fit_res =
         fitter_state.m_fit_res;
-    const typename edm::track_state_collection<algebra_type>::device&
-        track_states = fitter_state.m_fit_actor_state.m_track_states;
 
     TRACCC_DEBUG_HOST_DEVICE("Checking fit results...");
 
@@ -517,17 +512,12 @@ class kalman_fitter {
 
     // NDF should always be positive for fitting
     if (fit_res.ndf() > 0) {
-      for (const edm::track_constituent_link& link :
-           fit_res.constituent_links()) {
-        assert(link.type == edm::track_constituent_link::track_state);
-        edm::track_state trk_state = track_states.at(link.index);
-
-        // Fitting fails if any of non-hole track states is not smoothed
-        if (!trk_state.is_hole() && !trk_state.is_smoothed()) {
-          TRACCC_ERROR_HOST_DEVICE("Not all smoothed");
-          fit_res.fit_outcome() = track_fit_outcome::FAILURE_NOT_ALL_SMOOTHED;
-          return;
-        }
+      // Fitting fails if any of non-hole track states is not smoothed: The
+      // successful smoother smoothed all track states that it reached
+      if (!fitter_state.m_fit_actor_state.all_smoothed()) {
+        TRACCC_ERROR_HOST_DEVICE("Not all smoothed");
+        fit_res.fit_outcome() = track_fit_outcome::FAILURE_NOT_ALL_SMOOTHED;
+        return;
       }
 
       // Fitting succeeds if any of non-hole track states is not smoothed
@@ -550,8 +540,8 @@ class kalman_fitter {
   // Field object
   const bfield_type m_field;
 
-  // Configuration object
-  config_type m_cfg;
+  // Configuration object (not copied, to keep the fitter small on device)
+  const config_type& m_cfg;
 };
 
 }  // namespace traccc

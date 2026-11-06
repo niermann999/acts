@@ -69,6 +69,10 @@ class kalman_fitting_algorithm
     /// Surface buffer used during the fitting
     move_only_any surfaces;
 
+    /// Buffer with the device detector object, that the device payload
+    /// points to (empty, if the kernels build the detector themselves)
+    move_only_any device_detector;
+
     /// The host-resident, templated payload
     std::any host_tpayload;
     /// The device-resident, templated payload (buffer)
@@ -156,6 +160,10 @@ class kalman_fitting_algorithm
   /// @param n_surfaces      The number of surfaces for each track to be
   ///                        fitted
   /// @param payload         The (non-templated) payload for the kernel(s)
+  /// @param device_detector Optional buffer with one device detector object
+  ///                        (@c vecmem::data::vector_buffer of the device
+  ///                        detector type). If it is set, the kernels use it
+  ///                        instead of building the detector in every thread.
   ///
   /// @return The prepared payload for the fitting kernel(s)
   ///
@@ -163,7 +171,8 @@ class kalman_fitting_algorithm
   fit_payload prepare_fit_payload_helper(
       const detector_buffer& det, const magnetic_field& field,
       const std::vector<unsigned int>& n_surfaces,
-      const device::fit_payload& payload) const;
+      const device::fit_payload& payload,
+      move_only_any device_detector = {}) const;
 
   /// @}
 
