@@ -24,6 +24,7 @@
 
 // System include(s).
 #include <iostream>
+#include <memory>
 
 namespace traccc::cuda {
 
@@ -129,7 +130,14 @@ full_chain_algorithm::full_chain_algorithm(
           logger->cloneWithSuffix("TrackParEstAlg"), m_await_function),
       m_finding(finding_config, {m_cached_device_mr, &m_cached_pinned_host_mr},
                 m_copy, m_stream, logger->cloneWithSuffix("TrackFindingAlg"),
-                nullptr, m_await_function),
+                std::make_unique<kalman_fitting_algorithm>(
+                    finding_config.kalman_smoother,
+                    traccc::memory_resource{m_cached_device_mr,
+                                            &m_cached_pinned_host_mr},
+                    m_copy, m_stream,
+                    logger->cloneWithSuffix("TrackFindingSmootherAlg"),
+                    m_await_function),
+                m_await_function),
       m_fitting(fitting_config, {m_cached_device_mr, &m_cached_pinned_host_mr},
                 m_copy, m_stream, logger->cloneWithSuffix("TrackFittingAlg"),
                 m_await_function),

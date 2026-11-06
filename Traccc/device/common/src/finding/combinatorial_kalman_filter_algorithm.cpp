@@ -132,10 +132,11 @@ auto combinatorial_kalman_filter_algorithm::operator()(
           vecmem::data::vector_view<unsigned int> track_liveness_view) {
         assert(m_kf_fitter != nullptr);
 
-    kalman_fitting_algorithm::fit_payload tmp =
-        m_kf_fitter->prepare_fit_payload(
-            det, bfield, seqs_sizes,
-            {track_indices_view, track_liveness_view, track_candidates_buffer});
+        kalman_fitting_algorithm::fit_payload tmp =
+            m_kf_fitter->prepare_fit_payload(
+                det, bfield, seqs_sizes,
+                {track_indices_view, track_liveness_view,
+                 track_candidates_buffer});
 
         // Save the (non-templated) host payload.
         smoothing_payload.payload = tmp.payload;
@@ -445,20 +446,6 @@ auto combinatorial_kalman_filter_algorithm::operator()(
               std::move(new_link_filtered_parameter_buffer);
         }
         if (collect_surfaces) {
-<<<<<<< HEAD
-          // Create new, larger buffers for the surface descriptors.
-          vecmem::data::vector_buffer<std::uint64_t> new_link_surfaces_buffer{
-              link_surfaces_size(link_buffer_capacity), mr().main};
-          vecmem::data::vector_buffer<unsigned int> new_link_n_surfaces_buffer{
-              link_buffer_capacity, mr().main};
-
-          // Copy old data to new buffers.
-          copy()(link_surfaces_buffer, new_link_surfaces_buffer)->ignore();
-          copy()(link_n_surfaces_buffer, new_link_n_surfaces_buffer)->wait();
-
-          // Replace old buffers with the new ones.
-=======
->>>>>>> 632bbe908 (Performance optimizations)
           link_surfaces_buffer = std::move(new_link_surfaces_buffer);
           link_surface_ranges_buffer =
               std::move(new_link_surface_ranges_buffer);
@@ -783,7 +770,8 @@ auto combinatorial_kalman_filter_algorithm::operator()(
       // 'max_surfaces_per_step' surfaces (the trailing holes are not added)
       std::vector<unsigned int> seqs_sizes(n_tracks);
       std::ranges::transform(
-          tips_length_host, seqs_sizes.begin(), [&](const unsigned int n_cands) {
+          tips_length_host, seqs_sizes.begin(),
+          [&](const unsigned int n_cands) {
             return (n_cands + cfg.max_num_skipping_per_cand) *
                    max_surfaces_per_step;
           });

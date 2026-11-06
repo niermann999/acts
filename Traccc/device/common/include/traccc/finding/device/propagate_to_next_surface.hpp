@@ -103,6 +103,10 @@ struct propagate_to_next_surface_payload {
 /// is added into the tip link container so that we can know which links in the
 /// link container are the final measurements of full tracks
 ///
+/// @note Does not record the surfaces for the Kalman smoother: Use
+///       @c propagate_to_next_surface_kalman, if
+///       @c cfg.run_smoother is @c smoother_type::e_kalman
+///
 /// @param[in] globalIndex        The index of the current thread
 /// @param[in] cfg                Track finding config object
 /// @param[in] det_data_ptr       Pointer to the tracking detector description

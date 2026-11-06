@@ -22,6 +22,9 @@
 // Detray include(s).
 #include <detray/utils/tuple_helpers.hpp>
 
+// System include(s).
+#include <cassert>
+
 namespace traccc::device {
 
 namespace details {
@@ -257,6 +260,9 @@ TRACCC_HOST_DEVICE inline void propagate_to_next_surface(
     const typename propagator_t::detector_type* const det_data_ptr,
     const bfield_t& field_data,
     const propagate_to_next_surface_payload& payload) {
+  // The Kalman smoother needs the recorded surfaces: Use
+  // 'propagate_to_next_surface_kalman' instead
+  assert(cfg.run_smoother != smoother_type::e_kalman);
   details::propagate_to_next_surface_impl<propagator_t, bfield_t, false>(
       globalIndex, cfg, det_data_ptr, field_data, payload);
 }
