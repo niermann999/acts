@@ -18,14 +18,14 @@
 // System include(s).
 #include <cstddef>
 
-/// Vector functions for the SoA plugins (Vc SoA and array SoA)
-///
-/// The functions operate on @c algebra::storage::vector types with a SIMD
-/// scalar. All lanes are evaluated at the same time.
-///
-/// @note The plugin has to declare the overloads of @c algebra::math::fma,
-/// @c sqrt, @c atan2, @c atanh and of @c algebra::constants::one for its SIMD
-/// type before this header is included.
+// Vector functions for the SoA plugins (Vc SoA and array SoA)
+//
+// The functions operate on algebra::storage::vector types with a SIMD
+// scalar. All lanes are evaluated at the same time.
+//
+// Note: The plugin has to declare the overloads of algebra::math::fma,
+// sqrt, atan2, atanh and of algebra::constants::one for its SIMD
+// type before this header is included.
 namespace detray::algebra::soa {
 
 /// Get the azimuthal angle of a vector in every lane
@@ -88,7 +88,7 @@ DETRAY_HOST_DEVICE constexpr scalar_t theta(
 /// @param a the first input vector
 /// @param b the second input vector
 ///
-/// @returns the cross product of @param a and @param b
+/// @returns the cross product of @p a and @p b
 template <std::size_t N, concepts::simd_scalar scalar_t,
           template <typename, std::size_t> class array_t>
   requires(N == 3)
@@ -109,7 +109,7 @@ cross(const algebra::storage::vector<N, scalar_t, array_t> &a,
 /// @param a the first input vector
 /// @param b the second input vector
 ///
-/// @returns the dot product of @param a and @param b
+/// @returns the dot product of @p a and @p b
 template <std::size_t N, concepts::simd_scalar scalar_t,
           template <typename, std::size_t> class array_t>
 DETRAY_HOST_DEVICE constexpr scalar_t dot(
@@ -132,7 +132,7 @@ DETRAY_HOST_DEVICE constexpr scalar_t dot(
 ///
 /// @param v the input vector
 ///
-/// @returns the euclidean norm of @param v
+/// @returns the euclidean norm of @p v
 template <std::size_t N, concepts::simd_scalar scalar_t,
           template <typename, std::size_t> class array_t>
 DETRAY_HOST_DEVICE constexpr scalar_t norm(
@@ -148,7 +148,7 @@ DETRAY_HOST_DEVICE constexpr scalar_t norm(
 ///
 /// @param v the input vector
 ///
-/// @returns the unit vector in the direction of @param v
+/// @returns the unit vector in the direction of @p v
 template <std::size_t N, concepts::simd_scalar scalar_t,
           template <typename, std::size_t> class array_t>
 DETRAY_HOST_DEVICE constexpr algebra::storage::vector<N, scalar_t, array_t>
